@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/lotus/chain/checkpointing"
 	"github.com/filecoin-project/lotus/chain/sharding"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/chain/wallet"
@@ -38,6 +39,10 @@ var delegatedCmd = &cli.Command{
 			// Start sharding sub to listent to shard events
 			node.Override(new(*sharding.ShardingSub), sharding.NewShardSub),
 			node.Override(StartShardingSubKey, sharding.BuildShardingSub),
+
+			// Start checkpoint sub
+			node.Override(new(*checkpointing.CheckpointingSub), checkpointing.NewCheckpointSub),
+			node.Override(StartCheckpointingSubKey, checkpointing.BuildCheckpointingSub),
 		)),
 	},
 }
