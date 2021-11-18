@@ -10,6 +10,7 @@ require (
 	github.com/Gurpartap/async v0.0.0-20180927173644-4f7f499dd9ee
 	github.com/Kubuxu/imtui v0.0.0-20210401140320-41663d68d0fa
 	github.com/StackExchange/wmi v1.2.1 // indirect
+	github.com/Zondax/multi-party-sig v0.6.0-alpha-2021-09-21.0.20211111100144-5be4b3f76bd1
 	github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d
 	github.com/alecthomas/jsonschema v0.0.0-20200530073317-71f438968921
 	github.com/buger/goterm v1.0.3

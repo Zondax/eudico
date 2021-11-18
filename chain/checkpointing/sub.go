@@ -9,9 +9,9 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/node/impl"
 	"github.com/filecoin-project/lotus/node/modules/helpers"
-	"github.com/filecoin-project/specs-actors/actors/builtin"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p-core/host"
+	peer "github.com/libp2p/go-libp2p-core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"go.uber.org/fx"
 )
@@ -21,10 +21,18 @@ var log = logging.Logger("checkpointing")
 type CheckpointingSub struct {
 	host   host.Host
 	pubsub *pubsub.PubSub
+	// Topic for keygen
+	topic *pubsub.Topic
+	// Sub for keygen
+	sub *pubsub.Subscription
 	// This is the API for the fullNode in the root chain.
 	api *impl.FullNodeAPI
 	// Listener for events of the root chain.
 	events *events.Events
+	// Generated public key
+	pubkey []byte
+	// Are we about to generate a key
+	genkey bool
 }
 
 func NewCheckpointSub(
@@ -43,6 +51,8 @@ func NewCheckpointSub(
 	}
 	return &CheckpointingSub{
 		pubsub: pubsub,
+		topic:  nil,
+		sub:    nil,
 		host:   host,
 		api:    &api,
 		events: e,
@@ -58,6 +68,36 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 	changeHandler := func(oldTs, newTs *types.TipSet, states events.StateChange, curH abi.ChainEpoch) (more bool, err error) {
 		log.Infow("State change detected for power actor")
 
+		fmt.Println("CHANGING!!!!!!!!!!!!!!!!!!!!!!!!!")
+
+		err = c.topic.Publish(ctx, []byte("hi"))
+		if err != nil {
+			panic(err)
+		}
+
+		msg, err := c.sub.Next(ctx)
+		if err != nil {
+			panic(err)
+		}
+
+		fmt.Println("Message:", string(msg.Data))
+		from, err := peer.IDFromBytes(msg.From)
+		if err != nil {
+			panic(err)
+		}
+		fmt.Println("From:", from)
+		fmt.Println("Seqno:", msg.GetSeqno())
+		fmt.Println("Peers list:", c.topic.ListPeers())
+
+		msg, err = c.sub.Next(ctx)
+		if err != nil {
+			panic(err)
+		}
+
+		fmt.Println("Message:", string(msg.Data))
+		fmt.Println("From:", msg.From)
+		fmt.Println("Peers list:", c.topic.ListPeers())
+
 		return true, nil
 	}
 
@@ -66,11 +106,25 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 	}
 
 	match := func(oldTs, newTs *types.TipSet) (bool, events.StateChange, error) {
-		oldAct, err := c.api.StateGetActor(ctx, builtin.StoragePowerActorAddr, oldTs.Key())
+		/*
+				NOT WORKING WITHOUT THE MOCKED POWER ACTOR
+
+			oldAct, err := c.api.StateGetActor(ctx, mpoweractor.MpowerActorAddr, oldTs.Key())
+			if err != nil {
+				return false, nil, err
+			}
+			newAct, err := c.api.StateGetActor(ctx, mpoweractor.MpowerActorAddr, newTs.Key())
+			if err != nil {
+				return false, nil, err
+			}
+		*/
+
+		// This is not actually what we want. Just here to check.
+		oldAct, err := c.api.ChainGetTipSet(ctx, oldTs.Key())
 		if err != nil {
 			return false, nil, err
 		}
-		newAct, err := c.api.StateGetActor(ctx, builtin.StoragePowerActorAddr, newTs.Key())
+		newAct, err := c.api.ChainGetTipSet(ctx, newTs.Key())
 		if err != nil {
 			return false, nil, err
 		}
@@ -78,8 +132,19 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 		// ZONDAX TODO:
 		// If Power Actors list has changed start DKG
 
-		fmt.Print(oldAct)
+		fmt.Println(oldAct)
 		fmt.Println(newAct)
+
+		// Only start when we have 3 peers
+		if len(c.topic.ListPeers()) < 2 {
+			return false, nil, nil
+		}
+
+		if c.genkey {
+			return false, nil, nil
+		}
+
+		c.genkey = true
 
 		return true, nil, nil
 	}
@@ -92,6 +157,19 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 
 func (c *CheckpointingSub) Start(ctx context.Context) {
 	c.listenCheckpointEvents(ctx)
+
+	topic, err := c.pubsub.Join("keygen")
+	if err != nil {
+		panic(err)
+	}
+	c.topic = topic
+
+	// and subscribe to it
+	sub, err := topic.Subscribe()
+	if err != nil {
+		panic(err)
+	}
+	c.sub = sub
 }
 
 func BuildCheckpointingSub(mctx helpers.MetricsCtx, lc fx.Lifecycle, c *CheckpointingSub) {
