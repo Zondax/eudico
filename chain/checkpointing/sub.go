@@ -69,34 +69,14 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 		log.Infow("State change detected for power actor")
 
 		fmt.Println("CHANGING!!!!!!!!!!!!!!!!!!!!!!!!!")
+		fmt.Println("Peers list:", c.topic.ListPeers())
 
 		err = c.topic.Publish(ctx, []byte("hi"))
 		if err != nil {
 			panic(err)
 		}
 
-		msg, err := c.sub.Next(ctx)
-		if err != nil {
-			panic(err)
-		}
-
-		fmt.Println("Message:", string(msg.Data))
-		from, err := peer.IDFromBytes(msg.From)
-		if err != nil {
-			panic(err)
-		}
-		fmt.Println("From:", from)
-		fmt.Println("Seqno:", msg.GetSeqno())
-		fmt.Println("Peers list:", c.topic.ListPeers())
-
-		msg, err = c.sub.Next(ctx)
-		if err != nil {
-			panic(err)
-		}
-
-		fmt.Println("Message:", string(msg.Data))
-		fmt.Println("From:", msg.From)
-		fmt.Println("Peers list:", c.topic.ListPeers())
+		fmt.Println("Nah")
 
 		return true, nil
 	}
@@ -170,6 +150,26 @@ func (c *CheckpointingSub) Start(ctx context.Context) {
 		panic(err)
 	}
 	c.sub = sub
+
+	go c.LoopHandler(ctx)
+}
+
+func (c *CheckpointingSub) LoopHandler(ctx context.Context) {
+	for {
+		msg, err := c.sub.Next(ctx)
+		if err != nil {
+			panic(err)
+		}
+
+		fmt.Println("Message:", string(msg.Data))
+		from, err := peer.IDFromBytes(msg.From)
+		if err != nil {
+			panic(err)
+		}
+		fmt.Println("From:", from)
+		fmt.Println("Seqno:", msg.GetSeqno())
+		fmt.Println("Peers list:", c.topic.ListPeers())
+	}
 }
 
 func BuildCheckpointingSub(mctx helpers.MetricsCtx, lc fx.Lifecycle, c *CheckpointingSub) {
