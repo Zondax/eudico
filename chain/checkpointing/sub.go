@@ -4,6 +4,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/Zondax/multi-party-sig/pkg/party"
+	"github.com/Zondax/multi-party-sig/pkg/protocol"
+	"github.com/Zondax/multi-party-sig/protocols/frost"
+	"github.com/Zondax/multi-party-sig/protocols/frost/keygen"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/lotus/chain/events"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -11,7 +15,6 @@ import (
 	"github.com/filecoin-project/lotus/node/modules/helpers"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p-core/host"
-	peer "github.com/libp2p/go-libp2p-core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"go.uber.org/fx"
 )
@@ -31,8 +34,8 @@ type CheckpointingSub struct {
 	events *events.Events
 	// Generated public key
 	pubkey []byte
-	// Are we about to generate a key
-	genkey bool
+	// taproot config
+	config *keygen.TaprootConfig
 }
 
 func NewCheckpointSub(
@@ -62,21 +65,66 @@ func NewCheckpointSub(
 func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 
 	checkFunc := func(ctx context.Context, ts *types.TipSet) (done bool, more bool, err error) {
+		// ZONDAX TODO
+		// Activate checkpointing every 5 blocks
+		if ts.Height()%5 == 0 {
+			fmt.Println("Check point time")
+
+			if c.config != nil {
+				fmt.Println("We have a taproot config")
+
+				c.CreateCheckpoint(ctx)
+			}
+
+		}
+
 		return false, true, nil
 	}
 
 	changeHandler := func(oldTs, newTs *types.TipSet, states events.StateChange, curH abi.ChainEpoch) (more bool, err error) {
 		log.Infow("State change detected for power actor")
 
-		fmt.Println("CHANGING!!!!!!!!!!!!!!!!!!!!!!!!!")
 		fmt.Println("Peers list:", c.topic.ListPeers())
 
-		err = c.topic.Publish(ctx, []byte("hi"))
-		if err != nil {
-			panic(err)
+		_id := c.host.ID().String()
+		var _idsStrings []string
+
+		_idsStrings = append(_idsStrings, _id)
+
+		for _, p := range c.topic.ListPeers() {
+			_idsStrings = append(_idsStrings, p.String())
 		}
 
-		fmt.Println("Nah")
+		var _ids []party.ID
+		for _, p := range _idsStrings {
+			_ids = append(_ids, party.ID(p))
+		}
+
+		ids := party.NewIDSlice(_ids)
+		id := party.ID(_id)
+
+		threshold := 2
+		n := NewNetwork(ids, c.sub, c.topic)
+		f := frost.KeygenTaproot(id, ids, threshold)
+
+		handler, err := protocol.NewMultiHandler(f, []byte{1, 2, 3})
+
+		fmt.Println(handler)
+
+		if err != nil {
+			fmt.Println(err)
+			log.Fatal("Not working")
+		}
+		c.LoopHandler(ctx, handler, n)
+		r, err := handler.Result()
+		if err != nil {
+			fmt.Println(err)
+			log.Fatal("Not working neither")
+		}
+		fmt.Println("Result :", r)
+
+		c.config = r.(*keygen.TaprootConfig)
+		c.pubkey = c.config.PublicKey
 
 		return true, nil
 	}
@@ -120,11 +168,9 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 			return false, nil, nil
 		}
 
-		if c.genkey {
+		if len(c.pubkey) > 1 {
 			return false, nil, nil
 		}
-
-		c.genkey = true
 
 		return true, nil, nil
 	}
@@ -150,30 +196,44 @@ func (c *CheckpointingSub) Start(ctx context.Context) {
 		panic(err)
 	}
 	c.sub = sub
-
-	go c.LoopHandler(ctx)
 }
 
-func (c *CheckpointingSub) LoopHandler(ctx context.Context) {
+func (c *CheckpointingSub) LoopHandler(ctx context.Context, h protocol.Handler, network *Network) {
 	for {
-		msg, err := c.sub.Next(ctx)
-		if err != nil {
-			panic(err)
+		msg, ok := <-h.Listen()
+		if !ok {
+			network.Done()
+			// the channel was closed, indicating that the protocol is done executing.
+			fmt.Println("Should be good")
+			return
 		}
+		network.Send(ctx, msg)
 
-		fmt.Println("Message:", string(msg.Data))
-		from, err := peer.IDFromBytes(msg.From)
-		if err != nil {
-			panic(err)
+		for _, _ = range network.Parties() {
+			msg = network.Next(ctx)
+			h.Accept(msg)
 		}
-		fmt.Println("From:", from)
-		fmt.Println("Seqno:", msg.GetSeqno())
-		fmt.Println("Peers list:", c.topic.ListPeers())
 	}
+}
+
+func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context) {
+
 }
 
 func BuildCheckpointingSub(mctx helpers.MetricsCtx, lc fx.Lifecycle, c *CheckpointingSub) {
 	ctx := helpers.LifecycleCtx(mctx, lc)
+
+	// Ping to see if bitcoind is available
+	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"ping\", \"params\": []}"
+
+	result := jsonRPC(payload)
+	if result == nil {
+		// Should probably not panic here
+		panic("Bitcoin node not available")
+	}
+
+	fmt.Println("Successfully pinged bitcoind")
+
 	c.Start(ctx)
 
 	lc.Append(fx.Hook{
