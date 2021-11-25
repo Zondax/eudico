@@ -82,8 +82,8 @@ github.com/StackExchange/wmi v1.2.1/go.mod h1:rcmrprowKIVzvc+NUiLncP2uuArMWLCbu9
 github.com/Stebalien/go-bitfield v0.0.1 h1:X3kbSSPUaJK60wV2hjOPZwmpljr6VGCqdq4cBLhbQBo=
 github.com/Stebalien/go-bitfield v0.0.1/go.mod h1:GNjFpasyUVkHMsfEOk8EFLJ9syQ6SI+XWrX9Wf2XH0s=
 github.com/VividCortex/gohistogram v1.0.0/go.mod h1:Pf5mBqqDxYaXu3hDrrU+w6nw50o/4+TcAqDqk/vUH7g=
-github.com/Zondax/multi-party-sig v0.6.0-alpha-2021-09-21.0.20211111100144-5be4b3f76bd1 h1:1KV8y2Fshoft+afe5hoZEkQJ+0eOcIkgi0s1O0dft1E=
-github.com/Zondax/multi-party-sig v0.6.0-alpha-2021-09-21.0.20211111100144-5be4b3f76bd1/go.mod h1:KOfSxMrl13ge7DX30LdWQyw4zrVzyZc9uykL77Q/TXc=
+github.com/Zondax/multi-party-sig v0.6.0-alpha-2021-09-21.0.20211117140501-65990deeb804 h1:zQrDkZ4qvHYKvqCJ2ljZ8VVSwHa1YC6nT8FFNQIahf0=
+github.com/Zondax/multi-party-sig v0.6.0-alpha-2021-09-21.0.20211117140501-65990deeb804/go.mod h1:KOfSxMrl13ge7DX30LdWQyw4zrVzyZc9uykL77Q/TXc=
 github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d h1:licZJFw2RwpHMqeKTCYkitsPqHNxTmd4SNR5r94FGM8=
 github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d/go.mod h1:asat636LX7Bqt5lYEZ27JNDcqxfjdBQuJ/MM4CN/Lzo=
 github.com/aead/siphash v1.0.1/go.mod h1:Nywa3cDsYNNK3gaciGTWPwHt0wlpNV15vwmswBAUSII=
@@ -146,6 +146,8 @@ github.com/btcsuite/btcutil v0.0.0-20190207003914-4c204d697803/go.mod h1:+5NJ2+q
 github.com/btcsuite/btcutil v0.0.0-20190425235716-9e5f4b9a998d/go.mod h1:+5NJ2+qvTyV9exUAL/rxXi3DcLg2Ts+ymUAY5y4NvMg=
 github.com/btcsuite/btcutil v1.0.2/go.mod h1:j9HUFwoQRsZL3V4n+qG+CUnEGHOarIxfC3Le2Yhbcts=
 github.com/btcsuite/btcutil v1.0.3-0.20201208143702-a53e38424cce/go.mod h1:0DVlHczLPewLcPGEIeUEzfOJhqGPQ0mJJRDBtD307+o=
+github.com/btcsuite/btcutil v1.0.3-0.20210929233259-9cdf59f60c51 h1:6XGSs4BMDRlNR9k+tpr1g2S6ZfQhKQl/Xr276yAEfP0=
+github.com/btcsuite/btcutil v1.0.3-0.20210929233259-9cdf59f60c51/go.mod h1:0DVlHczLPewLcPGEIeUEzfOJhqGPQ0mJJRDBtD307+o=
 github.com/btcsuite/go-socks v0.0.0-20170105172521-4720035b7bfd/go.mod h1:HHNXQzUsZCxOoE+CPiyCTO6x34Zs86zZUiwtpXoGdtg=
 github.com/btcsuite/goleveldb v0.0.0-20160330041536-7834afc9e8cd/go.mod h1:F+uVaaLLH7j4eDXPRvw78tMflu7Ie2bzYOH4Y8rRKBY=
 github.com/btcsuite/goleveldb v1.0.0/go.mod h1:QiK9vBlgftBg6rWQIj6wFzbPfRjiykIEhBH4obrXJ/I=

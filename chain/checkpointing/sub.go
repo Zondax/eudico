@@ -2,7 +2,11 @@ package checkpointing
 
 import (
 	"context"
+	"encoding/binary"
+	"encoding/hex"
 	"fmt"
+	"os"
+	"sort"
 
 	"github.com/Zondax/multi-party-sig/pkg/party"
 	"github.com/Zondax/multi-party-sig/pkg/protocol"
@@ -36,6 +40,14 @@ type CheckpointingSub struct {
 	pubkey []byte
 	// taproot config
 	config *keygen.TaprootConfig
+	// If we have started the key generation
+	genkey bool
+	// Initiated
+	init bool
+	// Previous tx
+	ptxid string
+	// Tweaked value
+	tweakedValue []byte
 }
 
 func NewCheckpointSub(
@@ -52,6 +64,11 @@ func NewCheckpointSub(
 	if err != nil {
 		return nil, err
 	}
+
+	// Load configTaproot
+	fmt.Println(os.Getenv("EUDICO_PATH"))
+	// Read file
+
 	return &CheckpointingSub{
 		pubsub: pubsub,
 		topic:  nil,
@@ -59,49 +76,27 @@ func NewCheckpointSub(
 		host:   host,
 		api:    &api,
 		events: e,
+		genkey: false,
+		init:   false,
 	}, nil
 }
 
 func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 
 	checkFunc := func(ctx context.Context, ts *types.TipSet) (done bool, more bool, err error) {
-		// ZONDAX TODO
-		// Activate checkpointing every 5 blocks
-		if ts.Height()%5 == 0 {
-			fmt.Println("Check point time")
-
-			if c.config != nil {
-				fmt.Println("We have a taproot config")
-
-				c.CreateCheckpoint(ctx)
-			}
-
-		}
-
 		return false, true, nil
 	}
 
 	changeHandler := func(oldTs, newTs *types.TipSet, states events.StateChange, curH abi.ChainEpoch) (more bool, err error) {
 		log.Infow("State change detected for power actor")
 
-		fmt.Println("Peers list:", c.topic.ListPeers())
+		idsStrings := c.orderParticipantsList()
 
-		_id := c.host.ID().String()
-		var _idsStrings []string
+		fmt.Println("Participants list :", idsStrings)
 
-		_idsStrings = append(_idsStrings, _id)
+		ids := c.formIDSlice(idsStrings)
 
-		for _, p := range c.topic.ListPeers() {
-			_idsStrings = append(_idsStrings, p.String())
-		}
-
-		var _ids []party.ID
-		for _, p := range _idsStrings {
-			_ids = append(_ids, party.ID(p))
-		}
-
-		ids := party.NewIDSlice(_ids)
-		id := party.ID(_id)
+		id := party.ID(c.host.ID().String())
 
 		threshold := 2
 		n := NewNetwork(ids, c.sub, c.topic)
@@ -126,6 +121,34 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 		c.config = r.(*keygen.TaprootConfig)
 		c.pubkey = c.config.PublicKey
 
+		if !c.init {
+			cp := []byte("random data")[:]
+
+			if idsStrings[0] == c.host.ID().String() {
+				// The first DKG and the first person in the participants list will be charge of
+				// funding the first taproot address for the sake of the demo
+				pubkeyShort := GenCheckpointPublicKeyTaproot(c.pubkey, cp)
+
+				taprootAddress := PubkeyToTapprootAddress(pubkeyShort)
+
+				payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"sendtoaddress\", \"params\": [\"" + taprootAddress + "\", 50]}"
+				result := jsonRPC(payload)
+				fmt.Println(result)
+				if result == nil {
+					// Should probably not panic here
+					panic("Couldn't create first transaction")
+				}
+
+				c.ptxid = result["result"].(string)
+			}
+
+			// Save tweaked value
+			merkleRoot := HashMerkleRoot(c.pubkey, cp)
+			c.tweakedValue = HashTweakedValue(c.pubkey, merkleRoot)
+
+			c.init = true
+		}
+
 		return true, nil
 	}
 
@@ -148,29 +171,43 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 		*/
 
 		// This is not actually what we want. Just here to check.
-		oldAct, err := c.api.ChainGetTipSet(ctx, oldTs.Key())
+		oldTipset, err := c.api.ChainGetTipSet(ctx, oldTs.Key())
 		if err != nil {
 			return false, nil, err
 		}
-		newAct, err := c.api.ChainGetTipSet(ctx, newTs.Key())
+		/*newAct, err := c.api.ChainGetTipSet(ctx, newTs.Key())
 		if err != nil {
 			return false, nil, err
-		}
+		}*/
 
 		// ZONDAX TODO:
 		// If Power Actors list has changed start DKG
-
-		fmt.Println(oldAct)
-		fmt.Println(newAct)
 
 		// Only start when we have 3 peers
 		if len(c.topic.ListPeers()) < 2 {
 			return false, nil, nil
 		}
 
-		if len(c.pubkey) > 1 {
+		if c.genkey {
+			fmt.Println(oldTipset.Height())
+			// ZONDAX TODO
+			// Activate checkpointing every 5 blocks
+			if oldTipset.Height()%5 == 0 {
+				fmt.Println("Check point time")
+
+				if c.init && c.config != nil {
+					fmt.Println("We have a taproot config")
+
+					data := oldTipset.Cids()[0]
+
+					c.CreateCheckpoint(ctx, data.Bytes())
+				}
+
+			}
 			return false, nil, nil
 		}
+
+		c.genkey = true
 
 		return true, nil, nil
 	}
@@ -216,8 +253,96 @@ func (c *CheckpointingSub) LoopHandler(ctx context.Context, h protocol.Handler, 
 	}
 }
 
-func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context) {
+func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, data []byte) {
+	idsStrings := c.orderParticipantsList()
 
+	fmt.Println("Participants list :", idsStrings)
+
+	ids := c.formIDSlice(idsStrings)
+
+	//if idsStrings[0] == c.host.ID().String() {
+	{
+		taprootAddress := PubkeyToTapprootAddress(c.pubkey)
+
+		// The first participant create the message to sign
+		payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"createrawtransaction\", \"params\": [[{\"txid\":\"" + c.ptxid + "\",\"vout\": 0, \"sequence\": 4294967295}], [{\"" + taprootAddress + "\": \"50\"}, {\"data\": \"636964\"}]]}"
+		result := jsonRPC(payload)
+		if result == nil {
+			panic("cant create new transaction")
+		}
+
+		rawTransaction := result["result"].(string)
+
+		payload = "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"gettxout\", \"params\": [\"" + c.ptxid + "\", 0]}"
+
+		result = jsonRPC(payload)
+		if result == nil {
+			panic("cant retrieve previous transaction")
+		}
+		taprootTxOut := result["result"].(map[string]interface{})
+		scriptPubkey := taprootTxOut["scriptPubKey"].(map[string]interface{})
+		scriptPubkeyBytes, _ := hex.DecodeString(scriptPubkey["hex"].(string))
+
+		var buf [8]byte
+		binary.LittleEndian.PutUint64(buf[:], uint64(taprootTxOut["value"].(float64)*100000000))
+
+		tx, err := hex.DecodeString(rawTransaction)
+		if err != nil {
+			panic(err)
+		}
+		utxo := append(buf[:], []byte{34}...)
+		utxo = append(utxo, scriptPubkeyBytes...)
+
+		hashedTx, err := TaprootSignatureHash(tx, utxo, 0x00)
+		if err != nil {
+			panic(err)
+		}
+
+		/*
+		 * Orchestrate the signing message
+		 */
+
+		f := frost.SignTaprootWithTweak(c.config, ids, hashedTx[:], c.tweakedValue[:])
+		n := NewNetwork(ids, c.sub, c.topic)
+		handler, err := protocol.NewMultiHandler(f, []byte{1, 2, 3})
+		if err != nil {
+			panic(err)
+		}
+		c.LoopHandler(ctx, handler, n)
+		r, err := handler.Result()
+		if err != nil {
+			fmt.Println(err)
+			log.Fatal("Not working neither")
+		}
+		fmt.Println("Result :", r)
+	}
+
+}
+
+func (c *CheckpointingSub) orderParticipantsList() []string {
+	id := c.host.ID().String()
+	var ids []string
+
+	ids = append(ids, id)
+
+	for _, p := range c.topic.ListPeers() {
+		ids = append(ids, p.String())
+	}
+
+	sort.Strings(ids)
+
+	return ids
+}
+
+func (c *CheckpointingSub) formIDSlice(ids []string) party.IDSlice {
+	var _ids []party.ID
+	for _, p := range ids {
+		_ids = append(_ids, party.ID(p))
+	}
+
+	idsSlice := party.NewIDSlice(_ids)
+
+	return idsSlice
 }
 
 func BuildCheckpointingSub(mctx helpers.MetricsCtx, lc fx.Lifecycle, c *CheckpointingSub) {

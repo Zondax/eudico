@@ -1,5 +1,22 @@
 #! /bin/bash
 
+curl -u satoshi:amiens -X POST \
+    127.0.0.1:18443 \
+    -d "{\"jsonrpc\":\"2.0\",\"id\":\"0\",\"method\":\"createwallet\", \"params\": [\"wow\"]}" \
+    -H 'Content-Type:application/json'
+
+ADDRESS=$(curl -u satoshi:amiens -X POST \
+    127.0.0.1:18443 \
+    -d "{\"jsonrpc\":\"2.0\",\"id\":\"0\",\"method\":\"getnewaddress\", \"params\": [\"wow\"]}" \
+    -H 'Content-Type:application/json' | jq -r '.result')
+
+echo "$ADDRESS"
+
+curl -u satoshi:amiens -X POST \
+    127.0.0.1:18443 \
+    -d "{\"jsonrpc\":\"2.0\",\"id\":\"0\",\"method\":\"generatetoaddress\", \"params\": [150, \"$ADDRESS\"]}" \
+    -H 'Content-Type:application/json'
+
 tmux \
     new-session 'EUDICO_PATH=$PWD/data/alice ./eudico  delegated daemon --genesis=gen.gen; sleep infinity' \; \
     split-window -h 'EUDICO_PATH=$PWD/data/bob ./eudico  delegated daemon --genesis=gen.gen; sleep infinity' \; \

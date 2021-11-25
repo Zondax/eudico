@@ -8,6 +8,10 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strings"
+
+	"github.com/Zondax/multi-party-sig/pkg/math/curve"
+	"github.com/btcsuite/btcutil/bech32"
+	"github.com/cronokirby/safenum"
 )
 
 func TaggedHash(tag string, datas ...[]byte) []byte {
@@ -71,6 +75,63 @@ func TaprootSignatureHash(tx []byte, utxo []byte, hash_type byte) ([]byte, error
 	ss = append(ss, []byte{0, 0, 0, 0}...)
 
 	return TaggedHash("TapSighash", ss), nil
+}
+
+func PubkeyToTapprootAddress(pubkey []byte) string {
+	conv, err := bech32.ConvertBits(pubkey, 8, 5, true)
+	if err != nil {
+		fmt.Println("Error:", err)
+		log.Fatal("I dunno.")
+	}
+
+	// Add segwit version byte 1
+	conv = append([]byte{0x01}, conv...)
+
+	// regtest human-readable part is "bcrt" according to no documentation ever... (see https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki)
+	// Using EncodeM becasue we want bech32m... which has a new checksum
+	taprootAddress, err := bech32.EncodeM("bcrt", conv)
+	if err != nil {
+		fmt.Println(err)
+		log.Fatal("Couldn't produce our tapproot address.")
+	}
+	return taprootAddress
+}
+
+func ApplyTweakToPublicKeyTaproot(public []byte, tweak []byte) []byte {
+	group := curve.Secp256k1{}
+	s_tweak := group.NewScalar().SetNat(new(safenum.Nat).SetBytes(tweak))
+	p_tweak := s_tweak.ActOnBase()
+
+	P, _ := curve.Secp256k1{}.LiftX(public)
+
+	Y_tweak := P.Add(p_tweak)
+	YSecp := Y_tweak.(*curve.Secp256k1Point)
+	if !YSecp.HasEvenY() {
+		s_tweak.Negate()
+		p_tweak := s_tweak.ActOnBase()
+		Y_tweak = P.Negate().Add(p_tweak)
+		YSecp = Y_tweak.(*curve.Secp256k1Point)
+	}
+	PBytes := YSecp.XBytes()
+	return PBytes
+}
+
+func HashMerkleRoot(pubkey []byte, checkpoint []byte) []byte {
+	merkle_root := TaggedHash("TapLeaf", []byte{0xc0}, pubkey, checkpoint)
+	return merkle_root[:]
+}
+
+func HashTweakedValue(pubkey []byte, merkle_root []byte) []byte {
+	tweaked_value := TaggedHash("TapTweak", pubkey, merkle_root)
+	return tweaked_value[:]
+}
+
+func GenCheckpointPublicKeyTaproot(internal_pubkey []byte, checkpoint []byte) []byte {
+	merkle_root := HashMerkleRoot(internal_pubkey, checkpoint)
+	tweaked_value := HashTweakedValue(internal_pubkey, merkle_root)
+
+	tweaked_pubkey := ApplyTweakToPublicKeyTaproot(internal_pubkey, tweaked_value)
+	return tweaked_pubkey
 }
 
 func jsonRPC(payload string) map[string]interface{} {
