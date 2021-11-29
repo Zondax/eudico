@@ -175,10 +175,6 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 		if err != nil {
 			return false, nil, err
 		}
-		/*newAct, err := c.api.ChainGetTipSet(ctx, newTs.Key())
-		if err != nil {
-			return false, nil, err
-		}*/
 
 		// ZONDAX TODO:
 		// If Power Actors list has changed start DKG

@@ -155,8 +155,19 @@ func GenCheckpointPublicKeyTaproot(internal_pubkey []byte, checkpoint []byte) []
 func AddTaprootScriptToWallet(taprootScript string) bool {
 	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"importaddress\", \"params\": [\"" + taprootScript + "\", \"\", true]}"
 	result := jsonRPC(payload)
-	fmt.Println(result)
-	return result["error"] == nil
+
+	if result["error"] == nil {
+		return true
+	}
+
+	err := result["error"].(map[string]interface{})
+	if err["code"].(float64) == -4 {
+		// Particular case where we are already in the process of adding the key
+		// because we are using 1 bitcoin node for all
+		return true
+	}
+
+	return false
 }
 
 func GetTaprootScript(pubkey []byte) string {
