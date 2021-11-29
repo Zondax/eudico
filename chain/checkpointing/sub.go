@@ -48,6 +48,8 @@ type CheckpointingSub struct {
 	ptxid string
 	// Tweaked value
 	tweakedValue []byte
+	//checkpoint value
+	cp []byte
 }
 
 func NewCheckpointSub(
@@ -78,6 +80,7 @@ func NewCheckpointSub(
 		events: e,
 		genkey: false,
 		init:   false,
+		ptxid:  "",
 	}, nil
 }
 
@@ -119,17 +122,14 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 		fmt.Println("Result :", r)
 
 		c.config = r.(*keygen.TaprootConfig)
-		c.pubkey = c.config.PublicKey
 
 		if !c.init {
 			cp := []byte("random data")[:]
+			pubkeyShort := GenCheckpointPublicKeyTaproot(c.config.PublicKey, cp)
+			c.pubkey = pubkeyShort
 
 			if idsStrings[0] == c.host.ID().String() {
-				// The first DKG and the first person in the participants list will be charge of
-				// funding the first taproot address for the sake of the demo
-				pubkeyShort := GenCheckpointPublicKeyTaproot(c.pubkey, cp)
-
-				taprootAddress := PubkeyToTapprootAddress(pubkeyShort)
+				taprootAddress := PubkeyToTapprootAddress(c.pubkey)
 
 				payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"sendtoaddress\", \"params\": [\"" + taprootAddress + "\", 50]}"
 				result := jsonRPC(payload)
@@ -143,8 +143,8 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 			}
 
 			// Save tweaked value
-			merkleRoot := HashMerkleRoot(c.pubkey, cp)
-			c.tweakedValue = HashTweakedValue(c.pubkey, merkleRoot)
+			merkleRoot := HashMerkleRoot(c.config.PublicKey, cp)
+			c.tweakedValue = HashTweakedValue(c.config.PublicKey, merkleRoot)
 
 			c.init = true
 		}
@@ -255,15 +255,28 @@ func (c *CheckpointingSub) LoopHandler(ctx context.Context, h protocol.Handler, 
 
 func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, data []byte) {
 	idsStrings := c.orderParticipantsList()
-
 	fmt.Println("Participants list :", idsStrings)
-
 	ids := c.formIDSlice(idsStrings)
+	taprootAddress := PubkeyToTapprootAddress(c.pubkey)
+
+	if c.ptxid == "" {
+		taprootScript := GetTaprootScript(c.pubkey)
+		success := AddTaprootScriptToWallet(taprootScript)
+		if !success {
+			panic("failed to add taproot address to wallet")
+		}
+
+		ptxid, err := WalletGetTxidFromAddress(taprootAddress)
+		fmt.Println(taprootAddress)
+		if err != nil {
+			panic(err)
+		}
+		c.ptxid = ptxid
+		fmt.Println("Found precedent txid:", c.ptxid)
+	}
 
 	//if idsStrings[0] == c.host.ID().String() {
 	{
-		taprootAddress := PubkeyToTapprootAddress(c.pubkey)
-
 		// The first participant create the message to sign
 		payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"createrawtransaction\", \"params\": [[{\"txid\":\"" + c.ptxid + "\",\"vout\": 0, \"sequence\": 4294967295}], [{\"" + taprootAddress + "\": \"50\"}, {\"data\": \"636964\"}]]}"
 		result := jsonRPC(payload)
@@ -349,10 +362,8 @@ func BuildCheckpointingSub(mctx helpers.MetricsCtx, lc fx.Lifecycle, c *Checkpoi
 	ctx := helpers.LifecycleCtx(mctx, lc)
 
 	// Ping to see if bitcoind is available
-	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"ping\", \"params\": []}"
-
-	result := jsonRPC(payload)
-	if result == nil {
+	success := BitcoindPing()
+	if !success {
 		// Should probably not panic here
 		panic("Bitcoin node not available")
 	}

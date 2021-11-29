@@ -2,6 +2,7 @@ package checkpointing
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -97,6 +98,23 @@ func PubkeyToTapprootAddress(pubkey []byte) string {
 	return taprootAddress
 }
 
+func PubkeyToTapprootAddressLegacy(pubkey []byte) string {
+	conv, err := bech32.ConvertBits(pubkey, 8, 5, true)
+	if err != nil {
+		fmt.Println("Error:", err)
+		log.Fatal("I dunno.")
+	}
+	// Add segwit version byte 1
+	conv = append([]byte{0x01}, conv...)
+
+	taprootAddressLegacy, err := bech32.Encode("bcrt", conv)
+	if err != nil {
+		fmt.Println(err)
+		log.Fatal("Couldn't produce our tapproot address.")
+	}
+	return taprootAddressLegacy
+}
+
 func ApplyTweakToPublicKeyTaproot(public []byte, tweak []byte) []byte {
 	group := curve.Secp256k1{}
 	s_tweak := group.NewScalar().SetNat(new(safenum.Nat).SetBytes(tweak))
@@ -132,6 +150,53 @@ func GenCheckpointPublicKeyTaproot(internal_pubkey []byte, checkpoint []byte) []
 
 	tweaked_pubkey := ApplyTweakToPublicKeyTaproot(internal_pubkey, tweaked_value)
 	return tweaked_pubkey
+}
+
+func AddTaprootScriptToWallet(taprootScript string) bool {
+	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"importaddress\", \"params\": [\"" + taprootScript + "\", \"\", true]}"
+	result := jsonRPC(payload)
+	fmt.Println(result)
+	return result["error"] == nil
+}
+
+func GetTaprootScript(pubkey []byte) string {
+	return "5120" + hex.EncodeToString(pubkey)
+}
+
+// Temporary
+func BitcoindGetWalletAddress() string {
+	// Create wallet
+	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"createwallet\", \"params\": [\"wow\"]}"
+	_ = jsonRPC(payload)
+	// We don't cehck error here
+
+	//Get new address
+	payload = "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"getnewaddress\", \"params\": []}"
+
+	result := jsonRPC(payload)
+	address := fmt.Sprintf("%v", result["result"])
+	return address
+}
+
+func WalletGetTxidFromAddress(taprootAddress string) (string, error) {
+	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"listtransactions\", \"params\": [\"*\", 500000000, 0, true]}"
+	result := jsonRPC(payload)
+	list := result["result"].([]interface{})
+	for _, item := range list {
+		item_map := item.(map[string]interface{})
+		fmt.Println(item_map)
+		if item_map["address"] == taprootAddress {
+			txid := item_map["txid"].(string)
+			return txid, nil
+		}
+	}
+	return "", errors.New("did not find checkpoint")
+}
+
+func BitcoindPing() bool {
+	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"ping\", \"params\": []}"
+	result := jsonRPC(payload)
+	return result != nil
 }
 
 func jsonRPC(payload string) map[string]interface{} {
