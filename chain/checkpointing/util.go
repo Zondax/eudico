@@ -15,6 +15,17 @@ import (
 	"github.com/cronokirby/safenum"
 )
 
+type VerificationShare struct {
+	Share string
+}
+
+type TaprootConfigTOML struct {
+	Thershold          int
+	PrivateShare       string
+	PublicKey          string
+	VerificationShares map[string]VerificationShare
+}
+
 func TaggedHash(tag string, datas ...[]byte) []byte {
 	tagSum := sha256.Sum256([]byte(tag))
 

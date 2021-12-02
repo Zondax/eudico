@@ -8,6 +8,8 @@ import (
 	"os"
 	"sort"
 
+	"github.com/BurntSushi/toml"
+	"github.com/Zondax/multi-party-sig/pkg/math/curve"
 	"github.com/Zondax/multi-party-sig/pkg/party"
 	"github.com/Zondax/multi-party-sig/pkg/protocol"
 	"github.com/Zondax/multi-party-sig/pkg/taproot"
@@ -69,8 +71,61 @@ func NewCheckpointSub(
 	}
 
 	// Load configTaproot
-	fmt.Println(os.Getenv("EUDICO_PATH"))
-	// Read file
+	content, err := os.ReadFile(os.Getenv("EUDICO_PATH") + "/share.toml")
+	if err != nil {
+		return nil, err
+	}
+
+	var configTOML TaprootConfigTOML
+	_, err = toml.Decode(string(content), &configTOML)
+	if err != nil {
+		return nil, err
+	}
+
+	privateSharePath, err := hex.DecodeString(configTOML.PrivateShare)
+	if err != nil {
+		return nil, err
+	}
+
+	publickey, err := hex.DecodeString(configTOML.PublicKey)
+	if err != nil {
+		return nil, err
+	}
+
+	var privateShare curve.Secp256k1Scalar
+	err = privateShare.UnmarshalBinary(privateSharePath)
+	if err != nil {
+		return nil, err
+	}
+
+	verificationShares := make(map[party.ID]*curve.Secp256k1Point)
+
+	fmt.Println(configTOML.VerificationShares)
+
+	for key, vshare := range configTOML.VerificationShares {
+
+		fmt.Println(key)
+		fmt.Println(vshare)
+
+		var p curve.Secp256k1Point
+		pByte, err := hex.DecodeString(vshare.Share)
+		if err != nil {
+			return nil, err
+		}
+		err = p.UnmarshalBinary(pByte)
+		if err != nil {
+			return nil, err
+		}
+		verificationShares[party.ID(key)] = &p
+	}
+
+	config := keygen.TaprootConfig{
+		ID:                 party.ID(host.ID().String()),
+		Threshold:          configTOML.Thershold,
+		PrivateShare:       &privateShare,
+		PublicKey:          publickey,
+		VerificationShares: verificationShares,
+	}
 
 	return &CheckpointingSub{
 		pubsub: pubsub,
@@ -82,6 +137,7 @@ func NewCheckpointSub(
 		genkey: false,
 		init:   false,
 		ptxid:  "",
+		config: &config,
 	}, nil
 }
 
@@ -124,32 +180,6 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 
 		c.config = r.(*keygen.TaprootConfig)
 
-		if !c.init {
-			cp := []byte("random data")[:]
-			pubkeyShort := GenCheckpointPublicKeyTaproot(c.config.PublicKey, cp)
-			c.pubkey = pubkeyShort
-
-			if idsStrings[0] == c.host.ID().String() {
-				taprootAddress := PubkeyToTapprootAddress(c.pubkey)
-
-				payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"sendtoaddress\", \"params\": [\"" + taprootAddress + "\", 50]}"
-				result := jsonRPC(payload)
-				fmt.Println(result)
-				if result == nil {
-					// Should probably not panic here
-					panic("Couldn't create first transaction")
-				}
-
-				c.ptxid = result["result"].(string)
-			}
-
-			// Save tweaked value
-			merkleRoot := HashMerkleRoot(c.config.PublicKey, cp)
-			c.tweakedValue = HashTweakedValue(c.config.PublicKey, merkleRoot)
-
-			c.init = true
-		}
-
 		return true, nil
 	}
 
@@ -185,10 +215,41 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 			return false, nil, nil
 		}
 
-		if c.genkey {
-			fmt.Println(oldTipset.Height())
-			// ZONDAX TODO
-			// Activate checkpointing every 5 blocks
+		if !c.init {
+			fmt.Println("Init")
+			// Should be CID of blockheader 0
+			cp := []byte("random data")[:]
+			pubkeyShort := GenCheckpointPublicKeyTaproot(c.config.PublicKey, cp)
+			c.pubkey = pubkeyShort
+
+			idsStrings := c.orderParticipantsList()
+
+			if idsStrings[0] == c.host.ID().String() {
+				taprootAddress := PubkeyToTapprootAddress(c.pubkey)
+
+				payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"sendtoaddress\", \"params\": [\"" + taprootAddress + "\", 50]}"
+				result := jsonRPC(payload)
+				fmt.Println(result)
+				if result == nil {
+					// Should probably not panic here
+					panic("Couldn't create first transaction")
+				}
+
+				c.ptxid = result["result"].(string)
+			}
+
+			// Save tweaked value
+			merkleRoot := HashMerkleRoot(c.config.PublicKey, cp)
+			c.tweakedValue = HashTweakedValue(c.config.PublicKey, merkleRoot)
+
+			c.init = true
+
+			return false, nil, nil
+		}
+
+		// ZONDAX TODO
+		// Activate checkpointing every 5 blocks
+		if c.init {
 			if oldTipset.Height()%5 == 0 {
 				fmt.Println("Check point time")
 
@@ -200,13 +261,11 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 					c.CreateCheckpoint(ctx, data.Bytes())
 				}
 
+				return false, nil, nil
 			}
-			return false, nil, nil
 		}
 
-		c.genkey = true
-
-		return true, nil, nil
+		return false, nil, nil
 	}
 
 	err := c.events.StateChanged(checkFunc, changeHandler, revertHandler, 5, 76587687658765876, match)
