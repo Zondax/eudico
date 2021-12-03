@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/Zondax/multi-party-sig/pkg/math/curve"
@@ -228,6 +229,23 @@ func PrepareWitnessRawTransaction(rawtx string, sig []byte) string {
 	fmt.Println("Raw transaction signed :", wtx)
 
 	return wtx
+}
+
+func ParseUnspentTxOut(utxo []byte) (amount, script []byte) {
+	return utxo[0:8], utxo[9:]
+}
+
+func GetTxOut(txid string, index int) (float64, []byte) {
+	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"gettxout\", \"params\": [\"" + txid + "\", " + strconv.Itoa(index) + "]}"
+	result := jsonRPC(payload)
+	if result == nil {
+		panic("cant retrieve previous transaction")
+	}
+	taprootTxOut := result["result"].(map[string]interface{})
+	scriptPubkey := taprootTxOut["scriptPubKey"].(map[string]interface{})
+	scriptPubkeyBytes, _ := hex.DecodeString(scriptPubkey["hex"].(string))
+
+	return taprootTxOut["value"].(float64), scriptPubkeyBytes
 }
 
 func jsonRPC(payload string) map[string]interface{} {

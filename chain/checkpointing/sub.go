@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -43,16 +44,14 @@ type CheckpointingSub struct {
 	pubkey []byte
 	// taproot config
 	config *keygen.TaprootConfig
-	// If we have started the key generation
-	genkey bool
+	// new config generated
+	newconfig *keygen.TaprootConfig
 	// Initiated
 	init bool
 	// Previous tx
 	ptxid string
 	// Tweaked value
 	tweakedValue []byte
-	//checkpoint value
-	cp []byte
 }
 
 func NewCheckpointSub(
@@ -128,16 +127,16 @@ func NewCheckpointSub(
 	}
 
 	return &CheckpointingSub{
-		pubsub: pubsub,
-		topic:  nil,
-		sub:    nil,
-		host:   host,
-		api:    &api,
-		events: e,
-		genkey: false,
-		init:   false,
-		ptxid:  "",
-		config: &config,
+		pubsub:    pubsub,
+		topic:     nil,
+		sub:       nil,
+		host:      host,
+		api:       &api,
+		events:    e,
+		init:      false,
+		ptxid:     "",
+		config:    &config,
+		newconfig: nil,
 	}, nil
 }
 
@@ -178,7 +177,7 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 		}
 		fmt.Println("Result :", r)
 
-		c.config = r.(*keygen.TaprootConfig)
+		c.newconfig = r.(*keygen.TaprootConfig)
 
 		return true, nil
 	}
@@ -207,62 +206,41 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 			return false, nil, err
 		}
 
-		// ZONDAX TODO:
 		// If Power Actors list has changed start DKG
-
-		// Only start when we have 3 peers
-		if len(c.topic.ListPeers()) < 2 {
-			return false, nil, nil
-		}
-
 		if !c.init {
-			fmt.Println("Init")
-			// Should be CID of blockheader 0
-			cp := []byte("random data")[:]
-			pubkeyShort := GenCheckpointPublicKeyTaproot(c.config.PublicKey, cp)
-			c.pubkey = pubkeyShort
-
-			idsStrings := c.orderParticipantsList()
-
-			if idsStrings[0] == c.host.ID().String() {
-				taprootAddress := PubkeyToTapprootAddress(c.pubkey)
-
-				payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"sendtoaddress\", \"params\": [\"" + taprootAddress + "\", 50]}"
-				result := jsonRPC(payload)
-				fmt.Println(result)
-				if result == nil {
-					// Should probably not panic here
-					panic("Couldn't create first transaction")
-				}
-
-				c.ptxid = result["result"].(string)
+			ts, err := c.api.ChainGetTipSetByHeight(ctx, 0, oldTs.Key())
+			if err != nil {
+				panic(err)
 			}
-
-			// Save tweaked value
-			merkleRoot := HashMerkleRoot(c.config.PublicKey, cp)
-			c.tweakedValue = HashTweakedValue(c.config.PublicKey, merkleRoot)
-
-			c.init = true
-
+			data := ts.Cids()[0]
+			err = c.initiate(data.Bytes())
+			if err != nil {
+				panic(err)
+			}
 			return false, nil, nil
 		}
 
 		// ZONDAX TODO
-		// Activate checkpointing every 5 blocks
-		if c.init {
-			if oldTipset.Height()%5 == 0 {
-				fmt.Println("Check point time")
+		// Activate checkpointing every 20 blocks
+		fmt.Println("Height:", oldTipset.Height())
+		if oldTipset.Height()%20 == 0 {
+			fmt.Println("Check point time")
 
-				if c.init && c.config != nil {
-					fmt.Println("We have a taproot config")
+			// Initiation and config should be happening at start
+			if c.init && c.config != nil {
+				fmt.Println("We have a taproot config")
 
-					data := oldTipset.Cids()[0]
+				data := oldTipset.Cids()[0]
 
-					c.CreateCheckpoint(ctx, data.Bytes())
-				}
-
-				return false, nil, nil
+				c.CreateCheckpoint(ctx, data.Bytes())
 			}
+		}
+
+		// Generating new config every 50 blocks
+		if oldTipset.Height()%50 == 0 {
+			fmt.Println("Generate new config")
+
+			return true, nil, nil
 		}
 
 		return false, nil, nil
@@ -275,8 +253,6 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 }
 
 func (c *CheckpointingSub) Start(ctx context.Context) {
-	c.listenCheckpointEvents(ctx)
-
 	topic, err := c.pubsub.Join("keygen")
 	if err != nil {
 		panic(err)
@@ -289,6 +265,8 @@ func (c *CheckpointingSub) Start(ctx context.Context) {
 		panic(err)
 	}
 	c.sub = sub
+
+	c.listenCheckpointEvents(ctx)
 }
 
 func (c *CheckpointingSub) LoopHandler(ctx context.Context, h protocol.Handler, network *Network) {
@@ -310,15 +288,24 @@ func (c *CheckpointingSub) LoopHandler(ctx context.Context, h protocol.Handler, 
 }
 
 func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, data []byte) {
+	fmt.Println("Create Checkpoint!!!")
+
 	idsStrings := c.orderParticipantsList()
 	fmt.Println("Participants list :", idsStrings)
+	fmt.Println("Precedent tx", c.ptxid)
 	ids := c.formIDSlice(idsStrings)
 	taprootAddress := PubkeyToTapprootAddress(c.pubkey)
 
-	pubkeyShort := GenCheckpointPublicKeyTaproot(c.config.PublicKey, data)
+	pubkey := c.config.PublicKey
+	if c.newconfig != nil {
+		pubkey = c.newconfig.PublicKey
+	}
+
+	pubkeyShort := GenCheckpointPublicKeyTaproot(pubkey, data)
 	newTaprootAddress := PubkeyToTapprootAddress(pubkeyShort)
 
 	if c.ptxid == "" {
+		fmt.Println("Missing precedent txid")
 		taprootScript := GetTaprootScript(c.pubkey)
 		success := AddTaprootScriptToWallet(taprootScript)
 		if !success {
@@ -334,85 +321,94 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, data []byte) {
 		fmt.Println("Found precedent txid:", c.ptxid)
 	}
 
-	{
-		payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"gettxout\", \"params\": [\"" + c.ptxid + "\", 0]}"
-		result := jsonRPC(payload)
-		if result == nil {
-			panic("cant retrieve previous transaction")
-		}
-		taprootTxOut := result["result"].(map[string]interface{})
-		newValue := taprootTxOut["value"].(float64) - FEE
+	/*payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"gettxout\", \"params\": [\"" + c.ptxid + "\", 0]}"
+	result := jsonRPC(payload)
+	if result == nil {
+		panic("cant retrieve previous transaction")
+	}
+	taprootTxOut := result["result"].(map[string]interface{})
+	newValue := taprootTxOut["value"].(float64) - FEE
 
-		scriptPubkey := taprootTxOut["scriptPubKey"].(map[string]interface{})
-		scriptPubkeyBytes, _ := hex.DecodeString(scriptPubkey["hex"].(string))
+	scriptPubkey := taprootTxOut["scriptPubKey"].(map[string]interface{})
+	scriptPubkeyBytes, _ := hex.DecodeString(scriptPubkey["hex"].(string))*/
 
-		payload = "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"createrawtransaction\", \"params\": [[{\"txid\":\"" + c.ptxid + "\",\"vout\": 0, \"sequence\": 4294967295}], [{\"" + newTaprootAddress + "\": \"" + fmt.Sprintf("%.2f", newValue) + "\"}, {\"data\": \"" + hex.EncodeToString(data) + "\"}]]}"
+	value, scriptPubkeyBytes := GetTxOut(c.ptxid, 0)
+
+	if scriptPubkeyBytes[0] != 0x51 {
+		fmt.Println("Wrong txout")
+		value, scriptPubkeyBytes = GetTxOut(c.ptxid, 1)
+	}
+	newValue := value - FEE
+
+	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"createrawtransaction\", \"params\": [[{\"txid\":\"" + c.ptxid + "\",\"vout\": 0, \"sequence\": 4294967295}], [{\"" + newTaprootAddress + "\": \"" + fmt.Sprintf("%.2f", newValue) + "\"}, {\"data\": \"" + hex.EncodeToString(data) + "\"}]]}"
+	result := jsonRPC(payload)
+	if result == nil {
+		panic("cant create new transaction")
+	}
+
+	rawTransaction := result["result"].(string)
+
+	tx, err := hex.DecodeString(rawTransaction)
+	if err != nil {
+		panic(err)
+	}
+
+	var buf [8]byte
+	binary.LittleEndian.PutUint64(buf[:], uint64(value*100000000))
+	utxo := append(buf[:], []byte{34}...)
+	utxo = append(utxo, scriptPubkeyBytes...)
+
+	hashedTx, err := TaprootSignatureHash(tx, utxo, 0x00)
+	if err != nil {
+		panic(err)
+	}
+
+	/*
+	 * Orchestrate the signing message
+	 */
+
+	f := frost.SignTaprootWithTweak(c.config, ids, hashedTx[:], c.tweakedValue[:])
+	n := NewNetwork(ids, c.sub, c.topic)
+	handler, err := protocol.NewMultiHandler(f, []byte{1, 2, 3})
+	if err != nil {
+		panic(err)
+	}
+	c.LoopHandler(ctx, handler, n)
+	r, err := handler.Result()
+	if err != nil {
+		fmt.Println(err)
+		log.Fatal("Not working neither")
+	}
+	fmt.Println("Result :", r)
+
+	// if signing is a success we register the new value
+	merkleRoot := HashMerkleRoot(pubkey, data)
+	c.tweakedValue = HashTweakedValue(pubkey, merkleRoot)
+	c.pubkey = pubkeyShort
+	// If new config used
+	if c.newconfig != nil {
+		c.config = c.newconfig
+		c.newconfig = nil
+	}
+
+	if idsStrings[0] == c.host.ID().String() {
+		// Only first one broadcast the transaction ?
+		// Actually all participants can broadcast the transcation. It will be the same everywhere.
+		rawtx := PrepareWitnessRawTransaction(rawTransaction, r.(taproot.Signature))
+
+		payload = "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"sendrawtransaction\", \"params\": [\"" + rawtx + "\"]}"
 		result = jsonRPC(payload)
-		if result == nil {
-			panic("cant create new transaction")
-		}
-
-		rawTransaction := result["result"].(string)
-
-		tx, err := hex.DecodeString(rawTransaction)
-		if err != nil {
-			panic(err)
-		}
-
-		var buf [8]byte
-		binary.LittleEndian.PutUint64(buf[:], uint64(taprootTxOut["value"].(float64)*100000000))
-		utxo := append(buf[:], []byte{34}...)
-		utxo = append(utxo, scriptPubkeyBytes...)
-
-		hashedTx, err := TaprootSignatureHash(tx, utxo, 0x00)
-		if err != nil {
-			panic(err)
-		}
-
-		/*
-		 * Orchestrate the signing message
-		 */
-
-		f := frost.SignTaprootWithTweak(c.config, ids, hashedTx[:], c.tweakedValue[:])
-		n := NewNetwork(ids, c.sub, c.topic)
-		handler, err := protocol.NewMultiHandler(f, []byte{1, 2, 3})
-		if err != nil {
-			panic(err)
-		}
-		c.LoopHandler(ctx, handler, n)
-		r, err := handler.Result()
-		if err != nil {
-			fmt.Println(err)
-			log.Fatal("Not working neither")
-		}
-		fmt.Println("Result :", r)
-
-		// if signing is a success we register the new value
-		merkleRoot := HashMerkleRoot(c.config.PublicKey, data)
-		c.tweakedValue = HashTweakedValue(c.config.PublicKey, merkleRoot)
-		c.pubkey = pubkeyShort
-
-		if idsStrings[0] == c.host.ID().String() {
-			// Only first one broadcast the transaction ?
-			// Actually all participants can broadcast the transcation. It will be the same everywhere.
-			rawtx := PrepareWitnessRawTransaction(rawTransaction, r.(taproot.Signature))
-
-			payload = "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"sendrawtransaction\", \"params\": [\"" + rawtx + "\"]}"
-			result = jsonRPC(payload)
-			if result["error"] != nil {
-				fmt.Println(result)
-				panic("failed to broadcast transaction")
-			}
-
+		if result["error"] != nil {
 			fmt.Println(result)
-
-			/* Need to keep this to build next one */
-			newtxid := result["result"].(string)
-
-			fmt.Println("New Txid:", newtxid)
-			c.ptxid = newtxid
+			panic("failed to broadcast transaction")
 		}
 
+		fmt.Println(result)
+
+		/* Need to keep this to build next one */
+		newtxid := result["result"].(string)
+		fmt.Println("New Txid:", newtxid)
+		c.ptxid = newtxid
 	}
 
 }
@@ -441,6 +437,43 @@ func (c *CheckpointingSub) formIDSlice(ids []string) party.IDSlice {
 	idsSlice := party.NewIDSlice(_ids)
 
 	return idsSlice
+}
+
+func (c *CheckpointingSub) prefundTaproot() error {
+	taprootAddress := PubkeyToTapprootAddress(c.pubkey)
+
+	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"sendtoaddress\", \"params\": [\"" + taprootAddress + "\", 50]}"
+	result := jsonRPC(payload)
+	fmt.Println(result)
+	if result == nil {
+		// Should probably not panic here
+		return errors.New("couldn't create first transaction")
+	}
+	c.ptxid = result["result"].(string)
+
+	return nil
+}
+
+func (c *CheckpointingSub) initiate(data []byte) error {
+	pubkeyShort := GenCheckpointPublicKeyTaproot(c.config.PublicKey, data)
+	c.pubkey = pubkeyShort
+
+	idsStrings := c.orderParticipantsList()
+
+	if idsStrings[0] == c.host.ID().String() {
+		err := c.prefundTaproot()
+		if err != nil {
+			return err
+		}
+	}
+
+	// Save tweaked value
+	merkleRoot := HashMerkleRoot(c.config.PublicKey, data)
+	c.tweakedValue = HashTweakedValue(c.config.PublicKey, merkleRoot)
+
+	c.init = true
+
+	return nil
 }
 
 func BuildCheckpointingSub(mctx helpers.MetricsCtx, lc fx.Lifecycle, c *CheckpointingSub) {
