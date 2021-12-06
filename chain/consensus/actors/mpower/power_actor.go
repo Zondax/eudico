@@ -2,6 +2,7 @@ package mpower
 
 import (
 	"bytes"
+	"fmt"
 
 	addr "github.com/filecoin-project/go-address"
 	address "github.com/filecoin-project/go-address"
@@ -10,6 +11,7 @@ import (
 	"github.com/filecoin-project/go-state-types/cbor"
 	"github.com/filecoin-project/go-state-types/exitcode"
 	rtt "github.com/filecoin-project/go-state-types/rt"
+	actor "github.com/filecoin-project/lotus/chain/consensus/actors"
 	xerrors "golang.org/x/xerrors"
 
 	power0 "github.com/filecoin-project/specs-actors/actors/builtin/power"
@@ -113,7 +115,11 @@ type CreateMinerParams struct {
 type CreateMinerReturn = power0.CreateMinerReturn
 
 func (a Actor) CreateMiner(rt Runtime, params *CreateMinerParams) *CreateMinerReturn {
-	rt.ValidateImmediateCallerType(builtin.CallerTypesSignable...)
+	fmt.Println("Trying to create miner")
+
+	rt.ValidateImmediateCallerAcceptAny()
+
+	fmt.Println("OK")
 
 	ctorParams := MinerConstructorParams{
 		OwnerAddr:           params.Owner,
@@ -131,7 +137,7 @@ func (a Actor) CreateMiner(rt Runtime, params *CreateMinerParams) *CreateMinerRe
 		builtin.InitActorAddr,
 		builtin.MethodsInit.Exec,
 		&initact.ExecParams{
-			CodeCID:           builtin.StorageMinerActorCodeID,
+			CodeCID:           actor.MpowerActorCodeID,
 			ConstructorParams: ctorParamBuf.Bytes(),
 		},
 		rt.ValueReceived(), // Pass on any value to the new actor.
