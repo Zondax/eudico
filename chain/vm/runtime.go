@@ -273,25 +273,30 @@ func (rt *Runtime) NewActorAddress() address.Address {
 }
 
 func (rt *Runtime) CreateActor(codeID cid.Cid, addr address.Address) {
+	fmt.Println("Create Actor")
 	if addr == address.Undef && rt.NetworkVersion() >= network.Version7 {
 		rt.Abortf(exitcode.SysErrorIllegalArgument, "CreateActor with Undef address")
 	}
+	fmt.Println("Create Actor 2")
 	act, aerr := rt.vm.areg.Create(codeID, rt)
 	if aerr != nil {
 		rt.Abortf(aerr.RetCode(), aerr.Error())
 	}
-
+	fmt.Println("Create Actor 3")
 	_, err := rt.state.GetActor(addr)
 	if err == nil {
 		rt.Abortf(exitcode.SysErrorIllegalArgument, "Actor address already exists")
 	}
 
+	fmt.Println("Create Actor 4")
 	rt.chargeGas(rt.Pricelist().OnCreateActor())
 
+	fmt.Println("Create Actor 5")
 	err = rt.state.SetActor(addr, act)
 	if err != nil {
 		panic(aerrors.Fatalf("creating actor entry: %v", err))
 	}
+	fmt.Println("Create Actor 6")
 	_ = rt.chargeGasSafe(gasOnActorExec)
 }
 

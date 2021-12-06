@@ -1,6 +1,8 @@
 package init
 
 import (
+	"fmt"
+
 	addr "github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/cbor"
@@ -67,6 +69,7 @@ type ExecReturn = init0.ExecReturn
 
 func (a InitActor) Exec(rt runtime.Runtime, params *ExecParams) *ExecReturn {
 	rt.ValidateImmediateCallerAcceptAny()
+	fmt.Println("Create")
 	callerCodeCID, ok := rt.GetActorCodeCID(rt.Caller())
 	builtin.RequireState(rt, ok, "no code for caller at %s", rt.Caller())
 	if !canExec(callerCodeCID, params.CodeCID) {
@@ -79,6 +82,8 @@ func (a InitActor) Exec(rt runtime.Runtime, params *ExecParams) *ExecReturn {
 	// a different ID.
 	uniqueAddress := rt.NewActorAddress()
 
+	fmt.Println("Exec")
+
 	// Allocate an ID for this actor.
 	// Store mapping of pubkey or actor address to actor ID
 	var st init6.State
@@ -89,12 +94,19 @@ func (a InitActor) Exec(rt runtime.Runtime, params *ExecParams) *ExecReturn {
 		builtin.RequireNoErr(rt, err, exitcode.ErrIllegalState, "failed to allocate ID address")
 	})
 
+	fmt.Println("Exec 2")
+	fmt.Println(params.CodeCID)
+	fmt.Println(idAddr)
+
 	// Create an empty actor.
 	rt.CreateActor(params.CodeCID, idAddr)
-
+	fmt.Println("Exec 3")
+	fmt.Println(idAddr)
 	// Invoke constructor.
 	code := rt.Send(idAddr, builtin.MethodConstructor, builtin.CBORBytes(params.ConstructorParams), rt.ValueReceived(), &builtin.Discard{})
+	fmt.Println("Damn")
 	builtin.RequireSuccess(rt, code, "constructor failed")
+	fmt.Println("Exec 4")
 
 	return &ExecReturn{IDAddress: idAddr, RobustAddress: uniqueAddress}
 }
@@ -102,7 +114,7 @@ func (a InitActor) Exec(rt runtime.Runtime, params *ExecParams) *ExecReturn {
 func canExec(callerCodeID cid.Cid, execCodeID cid.Cid) bool {
 	switch execCodeID {
 	case builtin.StorageMinerActorCodeID:
-		if callerCodeID == builtin.StoragePowerActorCodeID {
+		if callerCodeID == actor.MpowerActorCodeID {
 			return true
 		}
 		return false
@@ -110,7 +122,8 @@ func canExec(callerCodeID cid.Cid, execCodeID cid.Cid) bool {
 	case builtin.PaymentChannelActorCodeID,
 		builtin.MultisigActorCodeID,
 		actor.SplitActorCodeID,
-		actor.SubnetActorCodeID:
+		actor.SubnetActorCodeID,
+		actor.MpowerActorCodeID:
 		return true
 	default:
 		return false

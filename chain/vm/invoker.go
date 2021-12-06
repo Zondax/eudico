@@ -75,7 +75,6 @@ func NewActorRegistry() *ActorRegistry {
 
 func (ar *ActorRegistry) Invoke(codeCid cid.Cid, rt vmr.Runtime, method abi.MethodNum, params []byte) ([]byte, aerrors.ActorError) {
 	act, ok := ar.actors[codeCid]
-	fmt.Println(ar.actors)
 	if !ok {
 		log.Errorf("no code for actor %s (Addr: %s)", codeCid, rt.Receiver())
 		return nil, aerrors.Newf(exitcode.SysErrorIllegalActor, "no code for actor %s(%d)(%s)", codeCid, method, hex.EncodeToString(params))
@@ -100,6 +99,7 @@ func (ar *ActorRegistry) Register(pred ActorPredicate, actors ...rtt.VMActor) {
 		if err != nil {
 			panic(xerrors.Errorf("%s: %w", string(a.Code().Hash()), err))
 		}
+
 		ar.actors[a.Code()] = &actorInfo{
 			methods:   code,
 			vmActor:   a,
@@ -155,17 +155,22 @@ func (ar *ActorRegistry) Register(pred ActorPredicate, actors ...rtt.VMActor) {
 
 func (ar *ActorRegistry) Create(codeCid cid.Cid, rt vmr.Runtime) (*types.Actor, aerrors.ActorError) {
 	act, ok := ar.actors[codeCid]
+	fmt.Println("Create")
+	fmt.Println(act)
 	if !ok {
 		return nil, aerrors.Newf(exitcode.SysErrorIllegalArgument, "Can only create built-in actors.")
 	}
 
+	fmt.Println("Create 2")
 	if err := act.predicate(rt, act.vmActor); err != nil {
 		return nil, aerrors.Newf(exitcode.SysErrorIllegalArgument, "Cannot create actor: %w", err)
 	}
 
+	fmt.Println("Create 3")
 	if rtt.IsSingletonActor(act.vmActor) {
 		return nil, aerrors.Newf(exitcode.SysErrorIllegalArgument, "Can only have one instance of singleton actors.")
 	}
+	fmt.Println("Create 4")
 	return &types.Actor{
 		Code:    codeCid,
 		Head:    EmptyObjectCid,

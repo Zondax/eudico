@@ -1,8 +1,6 @@
 package registry
 
 import (
-	"fmt"
-
 	"github.com/filecoin-project/lotus/chain/actors"
 	initactor "github.com/filecoin-project/lotus/chain/consensus/actors/init"
 	"github.com/filecoin-project/lotus/chain/consensus/actors/mpower"
@@ -14,7 +12,6 @@ import (
 )
 
 func NewActorRegistry() *vm.ActorRegistry {
-	fmt.Println("Register our actor")
 	inv := vm.NewActorRegistry()
 
 	// TODO: drop unneeded
