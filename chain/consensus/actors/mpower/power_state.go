@@ -176,18 +176,6 @@ func (st *State) GetClaim(s adt.Store, a addr.Address) (*Claim, bool, error) {
 }
 
 func (st *State) addToClaim(claims *adt.Map, miner addr.Address, power abi.StoragePower, qapower abi.StoragePower) error {
-	fmt.Println("Adding claims")
-	/*oldClaim, ok, err := getClaim(claims, miner)
-	if err != nil {
-		return fmt.Errorf("failed to get claim: %w", err)
-	}
-	fmt.Println("We have old claims")
-	if !ok {
-		return exitcode.ErrNotFound.Wrapf("no claim for actor %v", miner)
-	}*/
-
-	fmt.Println("Ok")
-
 	// TotalBytes always update directly
 	st.TotalQABytesCommitted = big.Add(st.TotalQABytesCommitted, qapower)
 	st.TotalBytesCommitted = big.Add(st.TotalBytesCommitted, power)
@@ -204,7 +192,6 @@ func (st *State) addToClaim(claims *adt.Map, miner addr.Address, power abi.Stora
 		QualityAdjPower:     big.Add(oldClaim.QualityAdjPower, qapower),
 	}
 
-	fmt.Println("setClaim")
 	return setClaim(claims, miner, &newClaim)
 }
 

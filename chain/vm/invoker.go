@@ -155,22 +155,17 @@ func (ar *ActorRegistry) Register(pred ActorPredicate, actors ...rtt.VMActor) {
 
 func (ar *ActorRegistry) Create(codeCid cid.Cid, rt vmr.Runtime) (*types.Actor, aerrors.ActorError) {
 	act, ok := ar.actors[codeCid]
-	fmt.Println("Create")
-	fmt.Println(act)
 	if !ok {
 		return nil, aerrors.Newf(exitcode.SysErrorIllegalArgument, "Can only create built-in actors.")
 	}
 
-	fmt.Println("Create 2")
 	if err := act.predicate(rt, act.vmActor); err != nil {
 		return nil, aerrors.Newf(exitcode.SysErrorIllegalArgument, "Cannot create actor: %w", err)
 	}
 
-	fmt.Println("Create 3")
 	if rtt.IsSingletonActor(act.vmActor) {
 		return nil, aerrors.Newf(exitcode.SysErrorIllegalArgument, "Can only have one instance of singleton actors.")
 	}
-	fmt.Println("Create 4")
 	return &types.Actor{
 		Code:    codeCid,
 		Head:    EmptyObjectCid,

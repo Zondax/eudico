@@ -2,7 +2,6 @@ package mpower
 
 import (
 	"bytes"
-	"fmt"
 
 	addr "github.com/filecoin-project/go-address"
 	address "github.com/filecoin-project/go-address"
@@ -90,7 +89,6 @@ type MinerConstructorParams struct {
 ////////////////////////////////////////////////////////////////////////////////
 
 func (a Actor) Constructor(rt Runtime, _ *abi.EmptyValue) *abi.EmptyValue {
-	fmt.Println("Constructor")
 	rt.ValidateImmediateCallerIs(builtin.SystemActorAddr)
 
 	st, err := ConstructState(adt.AsStore(rt))
@@ -116,11 +114,7 @@ type CreateMinerParams struct {
 type CreateMinerReturn = power0.CreateMinerReturn
 
 func (a Actor) CreateMiner(rt Runtime, params *CreateMinerParams) *CreateMinerReturn {
-	fmt.Println("Trying to create miner")
-
 	rt.ValidateImmediateCallerAcceptAny()
-
-	fmt.Println("OK")
 
 	ctorParams := MinerConstructorParams{
 		OwnerAddr:           params.Owner,
@@ -129,8 +123,6 @@ func (a Actor) CreateMiner(rt Runtime, params *CreateMinerParams) *CreateMinerRe
 		PeerId:              params.Peer,
 		Multiaddrs:          params.Multiaddrs,
 	}
-	fmt.Println(params.Multiaddrs)
-
 	ctorParamBuf := new(bytes.Buffer)
 	err := ctorParams.MarshalCBOR(ctorParamBuf)
 	builtin.RequireNoErr(rt, err, exitcode.ErrSerialization, "failed to serialize miner constructor params %v", ctorParams)
@@ -146,7 +138,6 @@ func (a Actor) CreateMiner(rt Runtime, params *CreateMinerParams) *CreateMinerRe
 		rt.ValueReceived(), // Pass on any value to the new actor.
 		&addresses,
 	)
-	fmt.Println("Code:", code)
 	builtin.RequireSuccess(rt, code, "failed to init new actor")
 
 	var st State
@@ -154,7 +145,6 @@ func (a Actor) CreateMiner(rt Runtime, params *CreateMinerParams) *CreateMinerRe
 		claims, err := adt.AsMap(adt.AsStore(rt), st.Claims, builtin.DefaultHamtBitwidth)
 		builtin.RequireNoErr(rt, err, exitcode.ErrIllegalState, "failed to load claims")
 
-		fmt.Println("setClaim")
 		err = setClaim(claims, addresses.IDAddress, &Claim{params.WindowPoStProofType, abi.NewStoragePower(0), abi.NewStoragePower(0)})
 		builtin.RequireNoErr(rt, err, exitcode.ErrIllegalState, "failed to put power in claimed table while creating miner")
 
@@ -183,15 +173,12 @@ type UpdateClaimedPowerParams = power0.UpdateClaimedPowerParams
 // May only be invoked by a miner actor.
 func (a Actor) UpdateClaimedPower(rt Runtime, params *UpdateClaimedPowerParams) *abi.EmptyValue {
 	rt.ValidateImmediateCallerAcceptAny()
-	fmt.Println("Updating claims")
 	minerAddr := rt.Caller()
-	fmt.Println("Miner Addr:", minerAddr.String())
 	var st State
 	rt.StateTransaction(&st, func() {
-		fmt.Println("Gettng State")
 		claims, err := adt.AsMap(adt.AsStore(rt), st.Claims, builtin.DefaultHamtBitwidth)
 		builtin.RequireNoErr(rt, err, exitcode.ErrIllegalState, "failed to load claims")
-		fmt.Println("We have claims")
+
 		err = st.addToClaim(claims, minerAddr, params.RawByteDelta, params.QualityAdjustedDelta)
 		builtin.RequireNoErr(rt, err, exitcode.ErrIllegalState, "failed to update power raw %s, qa %s", params.RawByteDelta, params.QualityAdjustedDelta)
 
