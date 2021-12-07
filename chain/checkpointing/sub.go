@@ -73,61 +73,67 @@ func NewCheckpointSub(
 		return nil, err
 	}
 
+	var config *keygen.TaprootConfig
 	// Load configTaproot
-	content, err := os.ReadFile(os.Getenv("EUDICO_PATH") + "/share.toml")
-	if err != nil {
-		return nil, err
-	}
-
-	var configTOML TaprootConfigTOML
-	_, err = toml.Decode(string(content), &configTOML)
-	if err != nil {
-		return nil, err
-	}
-
-	privateSharePath, err := hex.DecodeString(configTOML.PrivateShare)
-	if err != nil {
-		return nil, err
-	}
-
-	publickey, err := hex.DecodeString(configTOML.PublicKey)
-	if err != nil {
-		return nil, err
-	}
-
-	var privateShare curve.Secp256k1Scalar
-	err = privateShare.UnmarshalBinary(privateSharePath)
-	if err != nil {
-		return nil, err
-	}
-
-	verificationShares := make(map[party.ID]*curve.Secp256k1Point)
-
-	fmt.Println(configTOML.VerificationShares)
-
-	for key, vshare := range configTOML.VerificationShares {
-
-		fmt.Println(key)
-		fmt.Println(vshare)
-
-		var p curve.Secp256k1Point
-		pByte, err := hex.DecodeString(vshare.Share)
+	if _, err := os.Stat(os.Getenv("EUDICO_PATH") + "/share.toml"); errors.Is(err, os.ErrNotExist) {
+		// path/to/whatever does not exist
+		fmt.Println("No share file saved")
+	} else {
+		content, err := os.ReadFile(os.Getenv("EUDICO_PATH") + "/share.toml")
 		if err != nil {
 			return nil, err
 		}
-		err = p.UnmarshalBinary(pByte)
+
+		var configTOML TaprootConfigTOML
+		_, err = toml.Decode(string(content), &configTOML)
 		if err != nil {
 			return nil, err
 		}
-		verificationShares[party.ID(key)] = &p
-	}
 
-	config := keygen.TaprootConfig{
-		ID:                 party.ID(host.ID().String()),
-		Threshold:          configTOML.Thershold,
-		PrivateShare:       &privateShare,
-		PublicKey:          publickey,
-		VerificationShares: verificationShares,
+		privateSharePath, err := hex.DecodeString(configTOML.PrivateShare)
+		if err != nil {
+			return nil, err
+		}
+
+		publickey, err := hex.DecodeString(configTOML.PublicKey)
+		if err != nil {
+			return nil, err
+		}
+
+		var privateShare curve.Secp256k1Scalar
+		err = privateShare.UnmarshalBinary(privateSharePath)
+		if err != nil {
+			return nil, err
+		}
+
+		verificationShares := make(map[party.ID]*curve.Secp256k1Point)
+
+		fmt.Println(configTOML.VerificationShares)
+
+		for key, vshare := range configTOML.VerificationShares {
+
+			fmt.Println(key)
+			fmt.Println(vshare)
+
+			var p curve.Secp256k1Point
+			pByte, err := hex.DecodeString(vshare.Share)
+			if err != nil {
+				return nil, err
+			}
+			err = p.UnmarshalBinary(pByte)
+			if err != nil {
+				return nil, err
+			}
+			verificationShares[party.ID(key)] = &p
+		}
+
+		config = &keygen.TaprootConfig{
+			ID:                 party.ID(host.ID().String()),
+			Threshold:          configTOML.Thershold,
+			PrivateShare:       &privateShare,
+			PublicKey:          publickey,
+			VerificationShares: verificationShares,
+		}
 	}
 
 	return &CheckpointingSub{
@@ -139,7 +145,7 @@ func NewCheckpointSub(
 		events:    e,
 		init:      false,
 		ptxid:     "",
-		config:    &config,
+		config:    config,
 		newconfig: nil,
 	}, nil
 }
