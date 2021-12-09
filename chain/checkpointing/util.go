@@ -252,7 +252,7 @@ func GetTxOut(txid string, index int) (float64, []byte) {
 func jsonRPC(payload string) map[string]interface{} {
 	// ZONDAX TODO
 	// This needs to be in a config file
-	url := "http://127.0.0.1:18443"
+	url := "btc-rpc"
 	method := "POST"
 
 	user := "satoshi"
