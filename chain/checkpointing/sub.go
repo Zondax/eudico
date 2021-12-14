@@ -22,12 +22,15 @@ import (
 	"github.com/filecoin-project/lotus/chain/consensus/actors/mpower"
 	"github.com/filecoin-project/lotus/chain/events"
 	"github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/lotus/node/config"
 	"github.com/filecoin-project/lotus/node/impl"
 	"github.com/filecoin-project/lotus/node/modules/helpers"
 	cbor "github.com/ipfs/go-ipld-cbor"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p-core/host"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 	"go.uber.org/fx"
 )
 
@@ -56,6 +59,16 @@ type CheckpointingSub struct {
 	ptxid string
 	// Tweaked value
 	tweakedValue []byte
+	// minio config
+	cpconfig *config.Checkpoint
+	// minio client
+	minioClient *minio.Client
+	// Bitcoin latest checkpoint
+	latestConfigCheckpoint types.TipSetKey
+	// Is synced
+	synced bool
+	// height verified!
+	height abi.ChainEpoch
 }
 
 func NewCheckpointSub(
@@ -73,12 +86,22 @@ func NewCheckpointSub(
 		return nil, err
 	}
 
+	var ccfg config.FullNode
+	result, err := config.FromFile(os.Getenv("EUDICO_PATH")+"/config.toml", &ccfg)
+	if err != nil {
+		return nil, err
+	}
+
+	cpconfig := result.(*config.FullNode).Checkpoint
+
+	synced := false
 	var config *keygen.TaprootConfig
 	// Load configTaproot
 	if _, err := os.Stat(os.Getenv("EUDICO_PATH") + "/share.toml"); errors.Is(err, os.ErrNotExist) {
 		// path/to/whatever does not exist
 		fmt.Println("No share file saved")
 	} else {
+		synced = true
 		content, err := os.ReadFile(os.Getenv("EUDICO_PATH") + "/share.toml")
 		if err != nil {
 			return nil, err
@@ -108,12 +131,7 @@ func NewCheckpointSub(
 
 		verificationShares := make(map[party.ID]*curve.Secp256k1Point)
 
-		fmt.Println(configTOML.VerificationShares)
-
 		for key, vshare := range configTOML.VerificationShares {
-
-			fmt.Println(key)
-			fmt.Println(vshare)
 
 			var p curve.Secp256k1Point
 			pByte, err := hex.DecodeString(vshare.Share)
@@ -136,17 +154,29 @@ func NewCheckpointSub(
 		}
 	}
 
+	// Initialize minio client object.
+	minioClient, err := minio.New(cpconfig.MinioHost, &minio.Options{
+		Creds:  credentials.NewStaticV4(cpconfig.MinioAccessKeyID, cpconfig.MinioSecretAccessKey, ""),
+		Secure: false,
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	return &CheckpointingSub{
-		pubsub:    pubsub,
-		topic:     nil,
-		sub:       nil,
-		host:      host,
-		api:       &api,
-		events:    e,
-		init:      false,
-		ptxid:     "",
-		config:    config,
-		newconfig: nil,
+		pubsub:      pubsub,
+		topic:       nil,
+		sub:         nil,
+		host:        host,
+		api:         &api,
+		events:      e,
+		init:        false,
+		ptxid:       "",
+		config:      config,
+		newconfig:   nil,
+		cpconfig:    &cpconfig,
+		minioClient: minioClient,
+		synced:      synced,
 	}, nil
 }
 
@@ -173,13 +203,11 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 
 		handler, err := protocol.NewMultiHandler(f, []byte{1, 2, 3})
 		if err != nil {
-			fmt.Println(err)
 			panic(err)
 		}
 		c.LoopHandler(ctx, handler, n)
 		r, err := handler.Result()
 		if err != nil {
-			fmt.Println(err)
 			panic(err)
 		}
 		fmt.Println("Result :", r)
@@ -194,6 +222,32 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 	}
 
 	match := func(oldTs, newTs *types.TipSet) (bool, events.StateChange, error) {
+		// verify we are synced
+		st, err := c.api.SyncState(ctx)
+		if err != nil {
+			panic(err)
+		}
+		//fmt.Println(st.ActiveSyncs)
+
+		if !c.synced {
+			// Are we synced ?
+			if len(st.ActiveSyncs) > 0 &&
+				st.ActiveSyncs[len(st.ActiveSyncs)-1].Height == newTs.Height() {
+
+				fmt.Println("We are synced")
+				// Yes then verify our checkpoint
+				ts, err := c.api.ChainGetTipSet(ctx, c.latestConfigCheckpoint)
+				if err != nil {
+					panic(err)
+				}
+				fmt.Println("We have a checkpoint up to height : ", ts.Height())
+				c.synced = true
+				c.height = ts.Height()
+			} else {
+				return false, nil, nil
+			}
+		}
+
 		newAct, err := c.api.StateGetActor(ctx, mpower.PowerActorAddr, newTs.Key())
 		if err != nil {
 			return false, nil, err
@@ -215,8 +269,9 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 			return false, nil, err
 		}
 
-		// If Power Actors list has changed start DKG
-		if !c.init {
+		// Init with the first checkpoint for the demo
+		// Should be done outside of it ?
+		if !c.init && c.config != nil {
 			ts, err := c.api.ChainGetTipSetByHeight(ctx, 0, oldTs.Key())
 			if err != nil {
 				panic(err)
@@ -229,30 +284,36 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 			return false, nil, nil
 		}
 
-		// ZONDAX TODO
-		// Activate checkpointing every 20 blocks
+		// Activate checkpointing every 30 blocks
 		fmt.Println("Height:", newTs.Height())
-		if newTs.Height()%20 == 0 {
+		if newTs.Height()%30 == 0 && c.config != nil {
 			fmt.Println("Check point time")
 
 			// Initiation and config should be happening at start
-			if c.init && c.config != nil {
+			if c.init {
+				data := oldTs.Key().Bytes()
 
-				data := oldTs.Cids()[0]
-
-				var partyList string = ""
+				var config string = hex.EncodeToString(data) + "\n"
 				for _, partyId := range c.orderParticipantsList() {
-					partyList += partyId + "\n"
+					config += partyId + "\n"
 				}
-				hash, err := CreateConfig([]byte(partyList))
+
+				hash, err := CreateConfig([]byte(config))
 				if err != nil {
 					panic(err)
 				}
 
-				c.CreateCheckpoint(ctx, data.Bytes(), hash)
+				// Push config to S3
+				err = StoreConfig(ctx, c.minioClient, c.cpconfig.MinioBucketName, hex.EncodeToString(hash))
+				if err != nil {
+					panic(err)
+				}
+
+				go c.CreateCheckpoint(ctx, data, hash)
 			}
 		}
 
+		// If Power Actors list has changed start DKG
 		// Changes detected so generate new key
 		if oldSt.MinerCount != newSt.MinerCount {
 			fmt.Println("Generate new config")
@@ -322,7 +383,7 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 	if c.ptxid == "" {
 		fmt.Println("Missing precedent txid")
 		taprootScript := GetTaprootScript(c.pubkey)
-		success := AddTaprootScriptToWallet(taprootScript)
+		success := AddTaprootToWallet(taprootScript)
 		if !success {
 			panic("failed to add taproot address to wallet")
 		}
@@ -344,7 +405,7 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 		index = 1
 		value, scriptPubkeyBytes = GetTxOut(c.ptxid, index)
 	}
-	newValue := value - FEE
+	newValue := value - c.cpconfig.Fee
 
 	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"createrawtransaction\", \"params\": [[{\"txid\":\"" + c.ptxid + "\",\"vout\": " + strconv.Itoa(index) + ", \"sequence\": 4294967295}], [{\"" + newTaprootAddress + "\": \"" + fmt.Sprintf("%.2f", newValue) + "\"}, {\"data\": \"" + hex.EncodeToString(data) + "\"}]]}"
 	result := jsonRPC(payload)
@@ -397,6 +458,8 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 		c.config = c.newconfig
 		c.newconfig = nil
 	}
+
+	c.ptxid = ""
 
 	if idsStrings[0] == c.host.ID().String() {
 		// Only first one broadcast the transaction ?
@@ -493,6 +556,37 @@ func BuildCheckpointingSub(mctx helpers.MetricsCtx, lc fx.Lifecycle, c *Checkpoi
 	}
 
 	fmt.Println("Successfully pinged bitcoind")
+
+	LoadWallet()
+
+	// Get first checkpoint from block 0
+	ts, err := c.api.ChainGetGenesis(ctx)
+	if err != nil {
+		panic(err)
+	}
+	cidBytes := ts.Key().Bytes()
+	publickey, err := hex.DecodeString(c.cpconfig.PublicKey)
+	if err != nil {
+		panic(err)
+	}
+
+	btccp := GetLatestCheckpoint(publickey, cidBytes)
+
+	fmt.Println(btccp)
+
+	cp, err := GetConfig(ctx, c.minioClient, c.cpconfig.MinioBucketName, btccp.cid)
+
+	fmt.Println(cp)
+	if cp != "" {
+		cpBytes, err := hex.DecodeString(cp)
+		if err != nil {
+			panic(err)
+		}
+		c.latestConfigCheckpoint, err = types.TipSetKeyFromBytes(cpBytes)
+		if err != nil {
+			panic(err)
+		}
+	}
 
 	c.Start(ctx)
 
