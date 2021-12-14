@@ -224,12 +224,12 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 		fmt.Println(st.ActiveSyncs)
 
 		// Are we synced ?
-		if len(st.ActiveSyncs) > 0 && st.ActiveSyncs[len(st.ActiveSyncs)].Height == newTs.Height() {
+		/*if len(st.ActiveSyncs) > 0 && st.ActiveSyncs[len(st.ActiveSyncs)].Height == newTs.Height() {
 			fmt.Println("Are we synced ? Or less than 10 blocks close")
 			// Yes then verify our
 		} else {
 			return false, nil, nil
-		}
+		}*/
 
 		newAct, err := c.api.StateGetActor(ctx, mpower.PowerActorAddr, newTs.Key())
 		if err != nil {
