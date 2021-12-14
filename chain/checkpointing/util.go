@@ -50,9 +50,6 @@ func TaprootSignatureHash(tx []byte, utxo []byte, hash_type byte) ([]byte, error
 		return nil, errors.New("only support SIGHASH_DEFAULT (0x00)")
 	}
 
-	fmt.Println(hex.EncodeToString(tx))
-	fmt.Println(hex.EncodeToString(utxo))
-
 	var ss []byte
 
 	ext_flag := 0x00
@@ -228,7 +225,6 @@ func BitcoindPing() bool {
 
 func PrepareWitnessRawTransaction(rawtx string, sig []byte) string {
 	wtx := rawtx[:4*2] + "00" + "01" + rawtx[4*2:len(rawtx)-4*2] + "01" + "40" + hex.EncodeToString(sig) + rawtx[len(rawtx)-4*2:]
-	fmt.Println("Raw transaction signed :", wtx)
 
 	return wtx
 }
@@ -240,7 +236,6 @@ func ParseUnspentTxOut(utxo []byte) (amount, script []byte) {
 func GetTxOut(txid string, index int) (float64, []byte) {
 	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"gettxout\", \"params\": [\"" + txid + "\", " + strconv.Itoa(index) + "]}"
 	result := jsonRPC(payload)
-	fmt.Println(result)
 	if result == nil {
 		panic("cant retrieve previous transaction")
 	}

@@ -25,7 +25,6 @@ import (
 	"github.com/filecoin-project/lotus/node/config"
 	"github.com/filecoin-project/lotus/node/impl"
 	"github.com/filecoin-project/lotus/node/modules/helpers"
-	"github.com/ipfs/go-cid"
 	cbor "github.com/ipfs/go-ipld-cbor"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p-core/host"
@@ -65,7 +64,11 @@ type CheckpointingSub struct {
 	// minio client
 	minioClient *minio.Client
 	// Bitcoin latest checkpoint
-	latestConfigCheckpoint cid.Cid
+	latestConfigCheckpoint types.TipSetKey
+	// Is synced
+	synced bool
+	// height verified!
+	height abi.ChainEpoch
 }
 
 func NewCheckpointSub(
@@ -91,12 +94,14 @@ func NewCheckpointSub(
 
 	cpconfig := result.(*config.FullNode).Checkpoint
 
+	synced := false
 	var config *keygen.TaprootConfig
 	// Load configTaproot
 	if _, err := os.Stat(os.Getenv("EUDICO_PATH") + "/share.toml"); errors.Is(err, os.ErrNotExist) {
 		// path/to/whatever does not exist
 		fmt.Println("No share file saved")
 	} else {
+		synced = true
 		content, err := os.ReadFile(os.Getenv("EUDICO_PATH") + "/share.toml")
 		if err != nil {
 			return nil, err
@@ -171,6 +176,7 @@ func NewCheckpointSub(
 		newconfig:   nil,
 		cpconfig:    &cpconfig,
 		minioClient: minioClient,
+		synced:      synced,
 	}, nil
 }
 
@@ -221,15 +227,26 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 		if err != nil {
 			panic(err)
 		}
-		fmt.Println(st.ActiveSyncs)
+		//fmt.Println(st.ActiveSyncs)
 
-		// Are we synced ?
-		/*if len(st.ActiveSyncs) > 0 && st.ActiveSyncs[len(st.ActiveSyncs)].Height == newTs.Height() {
-			fmt.Println("Are we synced ? Or less than 10 blocks close")
-			// Yes then verify our
-		} else {
-			return false, nil, nil
-		}*/
+		if !c.synced {
+			// Are we synced ?
+			if len(st.ActiveSyncs) > 0 &&
+				st.ActiveSyncs[len(st.ActiveSyncs)-1].Height == newTs.Height() {
+
+				fmt.Println("We are synced")
+				// Yes then verify our checkpoint
+				ts, err := c.api.ChainGetTipSet(ctx, c.latestConfigCheckpoint)
+				if err != nil {
+					panic(err)
+				}
+				fmt.Println("We have a checkpoint up to height : ", ts.Height())
+				c.synced = true
+				c.height = ts.Height()
+			} else {
+				return false, nil, nil
+			}
+		}
 
 		newAct, err := c.api.StateGetActor(ctx, mpower.PowerActorAddr, newTs.Key())
 		if err != nil {
@@ -274,9 +291,9 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 
 			// Initiation and config should be happening at start
 			if c.init {
-				data := oldTs.Cids()[0]
+				data := oldTs.Key().Bytes()
 
-				var config string = data.String() + "\n"
+				var config string = hex.EncodeToString(data) + "\n"
 				for _, partyId := range c.orderParticipantsList() {
 					config += partyId + "\n"
 				}
@@ -292,7 +309,7 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 					panic(err)
 				}
 
-				go c.CreateCheckpoint(ctx, data.Bytes(), hash)
+				go c.CreateCheckpoint(ctx, data, hash)
 			}
 		}
 
@@ -547,7 +564,7 @@ func BuildCheckpointingSub(mctx helpers.MetricsCtx, lc fx.Lifecycle, c *Checkpoi
 	if err != nil {
 		panic(err)
 	}
-	cidBytes := ts.Cids()[0].Bytes()
+	cidBytes := ts.Key().Bytes()
 	publickey, err := hex.DecodeString(c.cpconfig.PublicKey)
 	if err != nil {
 		panic(err)
@@ -561,7 +578,11 @@ func BuildCheckpointingSub(mctx helpers.MetricsCtx, lc fx.Lifecycle, c *Checkpoi
 
 	fmt.Println(cp)
 	if cp != "" {
-		c.latestConfigCheckpoint, err = cid.Decode(cp)
+		cpBytes, err := hex.DecodeString(cp)
+		if err != nil {
+			panic(err)
+		}
+		c.latestConfigCheckpoint, err = types.TipSetKeyFromBytes(cpBytes)
 		if err != nil {
 			panic(err)
 		}
