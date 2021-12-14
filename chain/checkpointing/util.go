@@ -167,7 +167,7 @@ func GenCheckpointPublicKeyTaproot(internal_pubkey []byte, checkpoint []byte) []
 	return tweaked_pubkey
 }
 
-func AddTaprootScriptToWallet(taprootScript string) bool {
+func AddTaprootToWallet(taprootScript string) bool {
 	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"importaddress\", \"params\": [\"" + taprootScript + "\", \"\", true]}"
 	result := jsonRPC(payload)
 
@@ -189,15 +189,17 @@ func GetTaprootScript(pubkey []byte) string {
 	return "5120" + hex.EncodeToString(pubkey)
 }
 
-// Temporary
-func BitcoindGetWalletAddress() string {
+func LoadWallet() {
 	// Create wallet
 	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"createwallet\", \"params\": [\"wow\"]}"
 	_ = jsonRPC(payload)
-	// We don't cehck error here
+	// We don't check error here
+}
 
+// Temporary
+func BitcoindGetWalletAddress() string {
 	//Get new address
-	payload = "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"getnewaddress\", \"params\": []}"
+	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"getnewaddress\", \"params\": []}"
 
 	result := jsonRPC(payload)
 	address := fmt.Sprintf("%v", result["result"])
