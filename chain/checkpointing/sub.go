@@ -86,6 +86,8 @@ func NewCheckpointSub(
 		return nil, err
 	}
 
+	fmt.Println("EUDICO PATH :", os.Getenv("EUDICO_PATH"))
+
 	var ccfg config.FullNode
 	result, err := config.FromFile(os.Getenv("EUDICO_PATH")+"/config.toml", &ccfg)
 	if err != nil {
