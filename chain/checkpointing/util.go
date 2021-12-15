@@ -164,9 +164,9 @@ func GenCheckpointPublicKeyTaproot(internal_pubkey []byte, checkpoint []byte) []
 	return tweaked_pubkey
 }
 
-func AddTaprootToWallet(taprootScript string) bool {
+func AddTaprootToWallet(url, taprootScript string) bool {
 	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"importaddress\", \"params\": [\"" + taprootScript + "\", \"\", true]}"
-	result := jsonRPC(payload)
+	result := jsonRPC(url, payload)
 
 	if result["error"] == nil {
 		return true
@@ -186,26 +186,26 @@ func GetTaprootScript(pubkey []byte) string {
 	return "5120" + hex.EncodeToString(pubkey)
 }
 
-func LoadWallet() {
+func LoadWallet(url string) {
 	// Create wallet
 	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"createwallet\", \"params\": [\"wow\"]}"
-	_ = jsonRPC(payload)
+	_ = jsonRPC(url, payload)
 	// We don't check error here
 }
 
 // Temporary
-func BitcoindGetWalletAddress() string {
+func BitcoindGetWalletAddress(url string) string {
 	//Get new address
 	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"getnewaddress\", \"params\": []}"
 
-	result := jsonRPC(payload)
+	result := jsonRPC(url, payload)
 	address := fmt.Sprintf("%v", result["result"])
 	return address
 }
 
-func WalletGetTxidFromAddress(taprootAddress string) (string, error) {
+func WalletGetTxidFromAddress(url, taprootAddress string) (string, error) {
 	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"listtransactions\", \"params\": [\"*\", 500000000, 0, true]}"
-	result := jsonRPC(payload)
+	result := jsonRPC(url, payload)
 	list := result["result"].([]interface{})
 	for _, item := range list {
 		item_map := item.(map[string]interface{})
@@ -217,9 +217,9 @@ func WalletGetTxidFromAddress(taprootAddress string) (string, error) {
 	return "", errors.New("did not find checkpoint")
 }
 
-func BitcoindPing() bool {
+func BitcoindPing(url string) bool {
 	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"ping\", \"params\": []}"
-	result := jsonRPC(payload)
+	result := jsonRPC(url, payload)
 	return result != nil
 }
 
@@ -233,9 +233,9 @@ func ParseUnspentTxOut(utxo []byte) (amount, script []byte) {
 	return utxo[0:8], utxo[9:]
 }
 
-func GetTxOut(txid string, index int) (float64, []byte) {
+func GetTxOut(url, txid string, index int) (float64, []byte) {
 	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"gettxout\", \"params\": [\"" + txid + "\", " + strconv.Itoa(index) + "]}"
-	result := jsonRPC(payload)
+	result := jsonRPC(url, payload)
 	if result == nil {
 		panic("cant retrieve previous transaction")
 	}

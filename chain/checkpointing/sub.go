@@ -385,12 +385,12 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 	if c.ptxid == "" {
 		fmt.Println("Missing precedent txid")
 		taprootScript := GetTaprootScript(c.pubkey)
-		success := AddTaprootToWallet(taprootScript)
+		success := AddTaprootToWallet(c.cpconfig.BitcoinHost, taprootScript)
 		if !success {
 			panic("failed to add taproot address to wallet")
 		}
 
-		ptxid, err := WalletGetTxidFromAddress(taprootAddress)
+		ptxid, err := WalletGetTxidFromAddress(c.cpconfig.BitcoinHost, taprootAddress)
 		fmt.Println(taprootAddress)
 		if err != nil {
 			panic(err)
@@ -400,12 +400,12 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 	}
 
 	index := 0
-	value, scriptPubkeyBytes := GetTxOut(c.ptxid, index)
+	value, scriptPubkeyBytes := GetTxOut(c.cpconfig.BitcoinHost, c.ptxid, index)
 
 	if scriptPubkeyBytes[0] != 0x51 {
 		fmt.Println("Wrong txout")
 		index = 1
-		value, scriptPubkeyBytes = GetTxOut(c.ptxid, index)
+		value, scriptPubkeyBytes = GetTxOut(c.cpconfig.BitcoinHost, c.ptxid, index)
 	}
 	newValue := value - c.cpconfig.Fee
 
@@ -551,7 +551,7 @@ func BuildCheckpointingSub(mctx helpers.MetricsCtx, lc fx.Lifecycle, c *Checkpoi
 	ctx := helpers.LifecycleCtx(mctx, lc)
 
 	// Ping to see if bitcoind is available
-	success := BitcoindPing()
+	success := BitcoindPing(c.cpconfig.BitcoinHost)
 	if !success {
 		// Should probably not panic here
 		panic("Bitcoin node not available")
@@ -559,7 +559,7 @@ func BuildCheckpointingSub(mctx helpers.MetricsCtx, lc fx.Lifecycle, c *Checkpoi
 
 	fmt.Println("Successfully pinged bitcoind")
 
-	LoadWallet()
+	LoadWallet(c.cpconfig.BitcoinHost)
 
 	// Get first checkpoint from block 0
 	ts, err := c.api.ChainGetGenesis(ctx)
@@ -572,7 +572,7 @@ func BuildCheckpointingSub(mctx helpers.MetricsCtx, lc fx.Lifecycle, c *Checkpoi
 		panic(err)
 	}
 
-	btccp := GetLatestCheckpoint(publickey, cidBytes)
+	btccp := GetLatestCheckpoint(c.cpconfig.BitcoinHost, publickey, cidBytes)
 
 	fmt.Println(btccp)
 
