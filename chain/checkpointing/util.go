@@ -246,10 +246,9 @@ func GetTxOut(txid string, index int) (float64, []byte) {
 	return taprootTxOut["value"].(float64), scriptPubkeyBytes
 }
 
-func jsonRPC(payload string) map[string]interface{} {
+func jsonRPC(url, payload string) map[string]interface{} {
 	// ZONDAX TODO
 	// This needs to be in a config file
-	url := "http://127.0.0.1:18443"
 	method := "POST"
 
 	user := "satoshi"

@@ -410,7 +410,7 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 	newValue := value - c.cpconfig.Fee
 
 	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"createrawtransaction\", \"params\": [[{\"txid\":\"" + c.ptxid + "\",\"vout\": " + strconv.Itoa(index) + ", \"sequence\": 4294967295}], [{\"" + newTaprootAddress + "\": \"" + fmt.Sprintf("%.2f", newValue) + "\"}, {\"data\": \"" + hex.EncodeToString(data) + "\"}]]}"
-	result := jsonRPC(payload)
+	result := jsonRPC(c.cpconfig.BitcoinHost, payload)
 	fmt.Println(result)
 	if result == nil {
 		panic("cant create new transaction")
@@ -469,7 +469,7 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 		rawtx := PrepareWitnessRawTransaction(rawTransaction, r.(taproot.Signature))
 
 		payload = "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"sendrawtransaction\", \"params\": [\"" + rawtx + "\"]}"
-		result = jsonRPC(payload)
+		result = jsonRPC(c.cpconfig.BitcoinHost, payload)
 		if result["error"] != nil {
 			fmt.Println(result)
 			panic("failed to broadcast transaction")
@@ -514,7 +514,7 @@ func (c *CheckpointingSub) prefundTaproot() error {
 	taprootAddress := PubkeyToTapprootAddress(c.pubkey)
 
 	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"sendtoaddress\", \"params\": [\"" + taprootAddress + "\", 50]}"
-	result := jsonRPC(payload)
+	result := jsonRPC(c.cpconfig.BitcoinHost, payload)
 	fmt.Println(result)
 	if result == nil {
 		// Should probably not panic here
