@@ -288,7 +288,7 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 
 		// Activate checkpointing every 30 blocks
 		fmt.Println("Height:", newTs.Height())
-		if newTs.Height()%30 == 0 && c.config != nil {
+		if newTs.Height()%50 == 0 && c.config != nil {
 			fmt.Println("Check point time")
 
 			// Initiation and config should be happening at start
@@ -437,6 +437,7 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 	 * Orchestrate the signing message
 	 */
 
+	fmt.Println("Starting signing")
 	f := frost.SignTaprootWithTweak(c.config, ids, hashedTx[:], c.tweakedValue[:])
 	n := NewNetwork(ids, c.sub, c.topic)
 	handler, err := protocol.NewMultiHandler(f, []byte{1, 2, 3})
