@@ -288,7 +288,7 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 
 		// Activate checkpointing every 30 blocks
 		fmt.Println("Height:", newTs.Height())
-		if newTs.Height()%50 == 0 && c.config != nil {
+		if newTs.Height()%100 == 0 && c.config != nil {
 			fmt.Println("Check point time")
 
 			// Initiation and config should be happening at start
