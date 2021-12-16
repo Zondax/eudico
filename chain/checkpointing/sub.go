@@ -362,6 +362,7 @@ func (c *CheckpointingSub) LoopHandler(ctx context.Context, h protocol.Handler, 
 
 		for _, _ = range network.Parties() {
 			msg = network.Next(ctx)
+			fmt.Println(msg)
 			h.Accept(msg)
 		}
 	}
