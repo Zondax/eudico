@@ -360,10 +360,13 @@ func (c *CheckpointingSub) LoopHandler(ctx context.Context, h protocol.Handler, 
 		}
 		go network.Send(ctx, msg)
 
-		for _, _ = range network.Parties() {
+		i := 0
+		for i < len(network.Parties())-1 {
 			msg = network.Next(ctx)
-			fmt.Println(msg)
-			h.Accept(msg)
+			if h.CanAccept(msg) {
+				i = i + 1
+				h.Accept(msg)
+			}
 		}
 	}
 }
