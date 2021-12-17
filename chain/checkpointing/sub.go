@@ -195,30 +195,7 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 	changeHandler := func(oldTs, newTs *types.TipSet, states events.StateChange, curH abi.ChainEpoch) (more bool, err error) {
 		log.Infow("State change detected for power actor")
 
-		idsStrings := c.orderParticipantsList()
-
-		fmt.Println("Participants list :", idsStrings)
-
-		ids := c.formIDSlice(idsStrings)
-
-		id := party.ID(c.host.ID().String())
-
-		threshold := 2
-		n := NewNetwork(ids, c.sub, c.topic)
-		f := frost.KeygenTaproot(id, ids, threshold)
-
-		handler, err := protocol.NewMultiHandler(f, []byte{1, 2, 3})
-		if err != nil {
-			panic(err)
-		}
-		c.LoopHandler(ctx, handler, n)
-		r, err := handler.Result()
-		if err != nil {
-			panic(err)
-		}
-		fmt.Println("Result :", r)
-
-		c.newconfig = r.(*keygen.TaprootConfig)
+		c.GenerateNewKeys(ctx)
 
 		return true, nil
 	}
@@ -317,7 +294,7 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 					panic(err)
 				}
 
-				go c.CreateCheckpoint(ctx, data, hash)
+				c.CreateCheckpoint(ctx, data, hash)
 			}
 		}
 
@@ -355,28 +332,34 @@ func (c *CheckpointingSub) Start(ctx context.Context) {
 	c.listenCheckpointEvents(ctx)
 }
 
-func (c *CheckpointingSub) LoopHandler(ctx context.Context, h protocol.Handler, network *Network) {
-	for {
-		msg, ok := <-h.Listen()
-		if !ok {
-			network.Done()
-			// the channel was closed, indicating that the protocol is done executing.
-			fmt.Println("Should be good")
-			return
-		}
-		network.Send(ctx, msg)
+func (c *CheckpointingSub) GenerateNewKeys(ctx context.Context) {
+	c.lk.Lock()
+	defer c.lk.Unlock()
 
-		i := 0
-		for i < len(network.Parties())-1 {
-			fmt.Println("Waiting")
-			msg = network.Next(ctx)
-			fmt.Println(msg)
-			if h.CanAccept(msg) {
-				i = i + 1
-				h.Accept(msg)
-			}
-		}
+	idsStrings := c.orderParticipantsList()
+
+	fmt.Println("Participants list :", idsStrings)
+
+	ids := c.formIDSlice(idsStrings)
+
+	id := party.ID(c.host.ID().String())
+
+	threshold := 2
+	n := NewNetwork(ids, c.sub, c.topic)
+	f := frost.KeygenTaproot(id, ids, threshold)
+
+	handler, err := protocol.NewMultiHandler(f, []byte{1, 2, 3})
+	if err != nil {
+		panic(err)
 	}
+	LoopHandler(ctx, handler, n)
+	r, err := handler.Result()
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("Result :", r)
+
+	c.newconfig = r.(*keygen.TaprootConfig)
 }
 
 func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte) {
@@ -459,7 +442,7 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 	if err != nil {
 		panic(err)
 	}
-	c.LoopHandler(ctx, handler, n)
+	LoopHandler(ctx, handler, n)
 	r, err := handler.Result()
 	if err != nil {
 		fmt.Println(err)
