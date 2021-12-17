@@ -363,6 +363,7 @@ func (c *CheckpointingSub) LoopHandler(ctx context.Context, h protocol.Handler, 
 		i := 0
 		for i < len(network.Parties())-1 {
 			msg = network.Next(ctx)
+			fmt.Println(msg)
 			if h.CanAccept(msg) {
 				i = i + 1
 				h.Accept(msg)
