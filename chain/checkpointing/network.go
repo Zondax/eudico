@@ -47,7 +47,11 @@ func (n *Network) Send(ctx context.Context, msg *protocol.Message) {
 	if err != nil {
 		panic(err)
 	}
-	n.topic.Publish(ctx, data)
+	err = n.topic.Publish(ctx, data)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("Message sent !: ", msg)
 }
 
 func (n *Network) Done() {

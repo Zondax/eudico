@@ -9,6 +9,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"sync"
 
 	"github.com/BurntSushi/toml"
 	"github.com/Zondax/multi-party-sig/pkg/math/curve"
@@ -47,6 +48,9 @@ type CheckpointingSub struct {
 	api *impl.FullNodeAPI
 	// Listener for events of the root chain.
 	events *events.Events
+	// lock
+	lk sync.Mutex
+
 	// Generated public key
 	pubkey []byte
 	// taproot config
@@ -288,7 +292,9 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 
 		// Activate checkpointing every 30 blocks
 		fmt.Println("Height:", newTs.Height())
-		if newTs.Height()%50 == 0 && c.config != nil {
+		// NOTES: this will only work in delegated consensus
+		// Wait for more tipset to valid the height and be sure it is valid
+		if newTs.Height()%10 == 0 && c.config != nil {
 			fmt.Println("Check point time")
 
 			// Initiation and config should be happening at start
@@ -358,10 +364,11 @@ func (c *CheckpointingSub) LoopHandler(ctx context.Context, h protocol.Handler, 
 			fmt.Println("Should be good")
 			return
 		}
-		go network.Send(ctx, msg)
+		network.Send(ctx, msg)
 
 		i := 0
 		for i < len(network.Parties())-1 {
+			fmt.Println("Waiting")
 			msg = network.Next(ctx)
 			fmt.Println(msg)
 			if h.CanAccept(msg) {
@@ -373,6 +380,9 @@ func (c *CheckpointingSub) LoopHandler(ctx context.Context, h protocol.Handler, 
 }
 
 func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte) {
+	c.lk.Lock()
+	defer c.lk.Unlock()
+
 	idsStrings := c.orderParticipantsList()
 	fmt.Println("Participants list :", idsStrings)
 	fmt.Println("Precedent tx", c.ptxid)
