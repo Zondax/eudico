@@ -292,28 +292,41 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 			if c.init {
 
 				fmt.Println("Go go go!")
-				data := oldTs.Key().Bytes()
+				cp := oldTs.Key().Bytes()
 
-				// We dont have the config participants
-				// FIX THIS !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+				// If we don't have a config we don't sign but update our config with key
+				if c.config == nil {
+					fmt.Println("We dont have a config")
+					pubkey := c.newconfig.PublicKey
 
-				var config string = hex.EncodeToString(data) + "\n"
-				for _, partyId := range c.orderParticipantsList() {
-					config += partyId + "\n"
+					pubkeyShort := GenCheckpointPublicKeyTaproot(pubkey, cp)
+
+					c.config = c.newconfig
+					merkleRoot := HashMerkleRoot(pubkey, cp)
+					c.tweakedValue = HashTweakedValue(pubkey, merkleRoot)
+					c.pubkey = pubkeyShort
+					c.newconfig = nil
+
+				} else {
+					var config string = hex.EncodeToString(cp) + "\n"
+					for _, partyId := range c.orderParticipantsList() {
+						config += partyId + "\n"
+					}
+
+					hash, err := CreateConfig([]byte(config))
+					if err != nil {
+						panic(err)
+					}
+
+					// Push config to S3
+					err = StoreConfig(ctx, c.minioClient, c.cpconfig.MinioBucketName, hex.EncodeToString(hash))
+					if err != nil {
+						panic(err)
+					}
+
+					c.CreateCheckpoint(ctx, cp, hash)
 				}
 
-				hash, err := CreateConfig([]byte(config))
-				if err != nil {
-					panic(err)
-				}
-
-				// Push config to S3
-				err = StoreConfig(ctx, c.minioClient, c.cpconfig.MinioBucketName, hex.EncodeToString(hash))
-				if err != nil {
-					panic(err)
-				}
-
-				c.CreateCheckpoint(ctx, data, hash)
 			}
 		}
 
@@ -394,17 +407,6 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 
 	pubkeyShort := GenCheckpointPublicKeyTaproot(pubkey, cp)
 	newTaprootAddress := PubkeyToTapprootAddress(pubkeyShort)
-
-	// If we don't have a config we don't sign but update our config
-	if c.config == nil {
-		fmt.Println("We dont have a config")
-		c.config = c.newconfig
-		merkleRoot := HashMerkleRoot(pubkey, cp)
-		c.tweakedValue = HashTweakedValue(pubkey, merkleRoot)
-		c.pubkey = pubkeyShort
-
-		return
-	}
 
 	idsStrings := c.orderParticipantsList()
 	fmt.Println("Participants list :", idsStrings)
