@@ -29,6 +29,7 @@ import (
 	cbor "github.com/ipfs/go-ipld-cbor"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p-core/host"
+	"github.com/libp2p/go-libp2p-core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -55,6 +56,8 @@ type CheckpointingSub struct {
 	pubkey []byte
 	// taproot config
 	config *keygen.TaprootConfig
+	// miners
+	minerSigners []peer.ID
 	// new config generated
 	newconfig *keygen.TaprootConfig
 	// Initiated
@@ -99,6 +102,9 @@ func NewCheckpointSub(
 	}
 
 	cpconfig := result.(*config.FullNode).Checkpoint
+
+	// initiate miners signers array
+	var minerSigners []peer.ID
 
 	synced := false
 	var config *keygen.TaprootConfig
@@ -158,6 +164,12 @@ func NewCheckpointSub(
 			PublicKey:          publickey,
 			VerificationShares: verificationShares,
 		}
+
+		for id := range config.VerificationShares {
+			minerSigners = append(minerSigners, peer.ID(id))
+		}
+
+		fmt.Println(minerSigners)
 	}
 
 	// Initialize minio client object.
@@ -170,19 +182,20 @@ func NewCheckpointSub(
 	}
 
 	return &CheckpointingSub{
-		pubsub:      pubsub,
-		topic:       nil,
-		sub:         nil,
-		host:        host,
-		api:         &api,
-		events:      e,
-		init:        false,
-		ptxid:       "",
-		config:      config,
-		newconfig:   nil,
-		cpconfig:    &cpconfig,
-		minioClient: minioClient,
-		synced:      synced,
+		pubsub:       pubsub,
+		topic:        nil,
+		sub:          nil,
+		host:         host,
+		api:          &api,
+		events:       e,
+		init:         false,
+		ptxid:        "",
+		config:       config,
+		minerSigners: minerSigners,
+		newconfig:    nil,
+		cpconfig:     &cpconfig,
+		minioClient:  minioClient,
+		synced:       synced,
 	}, nil
 }
 
@@ -271,12 +284,18 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 		fmt.Println("Height:", newTs.Height())
 		// NOTES: this will only work in delegated consensus
 		// Wait for more tipset to valid the height and be sure it is valid
-		if newTs.Height()%10 == 0 && c.config != nil {
+		if newTs.Height()%10 == 0 && (c.config != nil || c.newconfig != nil) {
 			fmt.Println("Check point time")
+			fmt.Println(c.init)
 
 			// Initiation and config should be happening at start
 			if c.init {
+
+				fmt.Println("Go go go!")
 				data := oldTs.Key().Bytes()
+
+				// We dont have the config participants
+				// FIX THIS !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 				var config string = hex.EncodeToString(data) + "\n"
 				for _, partyId := range c.orderParticipantsList() {
@@ -336,7 +355,7 @@ func (c *CheckpointingSub) GenerateNewKeys(ctx context.Context) {
 	c.lk.Lock()
 	defer c.lk.Unlock()
 
-	idsStrings := c.orderParticipantsList()
+	idsStrings := c.newOrderParticipantsList()
 
 	fmt.Println("Participants list :", idsStrings)
 
@@ -366,10 +385,6 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 	c.lk.Lock()
 	defer c.lk.Unlock()
 
-	idsStrings := c.orderParticipantsList()
-	fmt.Println("Participants list :", idsStrings)
-	fmt.Println("Precedent tx", c.ptxid)
-	ids := c.formIDSlice(idsStrings)
 	taprootAddress := PubkeyToTapprootAddress(c.pubkey)
 
 	pubkey := c.config.PublicKey
@@ -379,6 +394,22 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 
 	pubkeyShort := GenCheckpointPublicKeyTaproot(pubkey, cp)
 	newTaprootAddress := PubkeyToTapprootAddress(pubkeyShort)
+
+	// If we don't have a config we don't sign but update our config
+	if c.config == nil {
+		fmt.Println("We dont have a config")
+		c.config = c.newconfig
+		merkleRoot := HashMerkleRoot(pubkey, cp)
+		c.tweakedValue = HashTweakedValue(pubkey, merkleRoot)
+		c.pubkey = pubkeyShort
+
+		return
+	}
+
+	idsStrings := c.orderParticipantsList()
+	fmt.Println("Participants list :", idsStrings)
+	fmt.Println("Precedent tx", c.ptxid)
+	ids := c.formIDSlice(idsStrings)
 
 	if c.ptxid == "" {
 		fmt.Println("Missing precedent txid")
@@ -483,14 +514,30 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 	}
 }
 
-func (c *CheckpointingSub) orderParticipantsList() []string {
+func (c *CheckpointingSub) newOrderParticipantsList() []string {
 	id := c.host.ID().String()
 	var ids []string
 
 	ids = append(ids, id)
 
-	for _, p := range c.topic.ListPeers() {
-		ids = append(ids, p.String())
+	for _, peerID := range c.topic.ListPeers() {
+		ids = append(ids, peerID.String())
+	}
+
+	sort.Strings(ids)
+
+	return ids
+}
+
+func (c *CheckpointingSub) orderParticipantsList() []string {
+	/*id := c.host.ID().String()
+	var ids []string
+
+	ids = append(ids, id)
+	*/
+	var ids []string
+	for id := range c.config.VerificationShares {
+		ids = append(ids, string(id))
 	}
 
 	sort.Strings(ids)
@@ -587,6 +634,9 @@ func BuildCheckpointingSub(mctx helpers.MetricsCtx, lc fx.Lifecycle, c *Checkpoi
 		if err != nil {
 			panic(err)
 		}
+
+		// The first tx is in Bitcoin
+		c.init = true
 	}
 
 	c.Start(ctx)
