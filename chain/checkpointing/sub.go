@@ -218,6 +218,9 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 	}
 
 	match := func(oldTs, newTs *types.TipSet) (bool, events.StateChange, error) {
+		c.lk.Lock()
+		defer c.lk.Unlock()
+
 		// verify we are synced
 		st, err := c.api.SyncState(ctx)
 		if err != nil {
@@ -365,8 +368,6 @@ func (c *CheckpointingSub) Start(ctx context.Context) {
 }
 
 func (c *CheckpointingSub) GenerateNewKeys(ctx context.Context) {
-	c.lk.Lock()
-	defer c.lk.Unlock()
 
 	idsStrings := c.newOrderParticipantsList()
 
@@ -395,8 +396,6 @@ func (c *CheckpointingSub) GenerateNewKeys(ctx context.Context) {
 }
 
 func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte) {
-	c.lk.Lock()
-	defer c.lk.Unlock()
 
 	taprootAddress := PubkeyToTapprootAddress(c.pubkey)
 
