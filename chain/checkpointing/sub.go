@@ -208,8 +208,6 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 	changeHandler := func(oldTs, newTs *types.TipSet, states events.StateChange, curH abi.ChainEpoch) (more bool, err error) {
 		log.Infow("State change detected for power actor")
 
-		c.GenerateNewKeys(ctx)
-
 		return true, nil
 	}
 
@@ -337,6 +335,8 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 		// Changes detected so generate new key
 		if oldSt.MinerCount != newSt.MinerCount {
 			fmt.Println("Generate new config")
+
+			c.GenerateNewKeys(ctx)
 
 			return true, nil, nil
 		}

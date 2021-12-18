@@ -28,6 +28,7 @@ func (n *Network) Next(ctx context.Context) *protocol.Message {
 	msg, err := n.sub.Next(ctx)
 	if err == context.Canceled {
 		// We are actually done and don't want to wait for messages anymore
+		fmt.Println("We called canceled")
 		return nil
 	}
 
@@ -94,7 +95,10 @@ func waitingMessages(ctx context.Context, h protocol.Handler, network *Network, 
 			return
 		default:
 			msg := network.Next(ctx)
-			fmt.Println("Incoming message:", msg)
+			if h.CanAccept(msg) {
+				// This message is ours
+				fmt.Println("Incoming message:", msg)
+			}
 			h.Accept(msg)
 		}
 
