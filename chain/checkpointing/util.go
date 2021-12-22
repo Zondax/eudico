@@ -90,11 +90,10 @@ func TaprootSignatureHash(tx []byte, utxo []byte, hash_type byte) ([]byte, error
 	return TaggedHash("TapSighash", ss), nil
 }
 
-func PubkeyToTapprootAddress(pubkey []byte) string {
+func PubkeyToTapprootAddress(pubkey []byte) (string, error) {
 	conv, err := bech32.ConvertBits(pubkey, 8, 5, true)
 	if err != nil {
-		fmt.Println("Error:", err)
-		log.Fatal("I dunno.")
+		return "", err
 	}
 
 	// Add segwit version byte 1
@@ -104,13 +103,12 @@ func PubkeyToTapprootAddress(pubkey []byte) string {
 	// Using EncodeM becasue we want bech32m... which has a new checksum
 	taprootAddress, err := bech32.EncodeM("bcrt", conv)
 	if err != nil {
-		fmt.Println(err)
-		log.Fatal("Couldn't produce our tapproot address.")
+		return "", err
 	}
-	return taprootAddress
+	return taprootAddress, nil
 }
 
-func PubkeyToTapprootAddressLegacy(pubkey []byte) string {
+/*func PubkeyToTapprootAddressLegacy(pubkey []byte) string {
 	conv, err := bech32.ConvertBits(pubkey, 8, 5, true)
 	if err != nil {
 		fmt.Println("Error:", err)
@@ -125,7 +123,7 @@ func PubkeyToTapprootAddressLegacy(pubkey []byte) string {
 		log.Fatal("Couldn't produce our tapproot address.")
 	}
 	return taprootAddressLegacy
-}
+}*/
 
 func ApplyTweakToPublicKeyTaproot(public []byte, tweak []byte) []byte {
 	group := curve.Secp256k1{}
@@ -183,6 +181,7 @@ func AddTaprootToWallet(url, taprootScript string) bool {
 }
 
 func GetTaprootScript(pubkey []byte) string {
+	// 1 <20-size>  pukey
 	return "5120" + hex.EncodeToString(pubkey)
 }
 

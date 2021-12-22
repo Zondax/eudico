@@ -66,10 +66,14 @@ func GetNextCheckpointFixed(url, txid string) (Checkpoint, error) {
 	return Checkpoint{}, errors.New("Did not find checkpoint")
 }
 
-func GetLatestCheckpoint(url string, first_pk []byte, first_cp []byte) Checkpoint {
+func GetLatestCheckpoint(url string, first_pk []byte, first_cp []byte) (*Checkpoint, error) {
 	first_pubkeyTaproot := GenCheckpointPublicKeyTaproot(first_pk, first_cp)
 	firstscript := GetTaprootScript(first_pubkeyTaproot)
-	taprootAddress := PubkeyToTapprootAddress(first_pubkeyTaproot)
+	taprootAddress, err := PubkeyToTapprootAddress(first_pubkeyTaproot)
+	if err != nil {
+		return nil, err
+	}
+
 	AddTaprootToWallet(url, firstscript)
 	checkpoint, done := GetFirstCheckpointAddress(url, taprootAddress)
 	AddTaprootToWallet(url, checkpoint.address)
@@ -80,7 +84,7 @@ func GetLatestCheckpoint(url string, first_pk []byte, first_cp []byte) Checkpoin
 			checkpoint = new_checkpoint
 			AddTaprootToWallet(url, checkpoint.address)
 		} else {
-			return checkpoint
+			return &checkpoint, nil
 		}
 	}
 }

@@ -285,14 +285,11 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 		fmt.Println("Height:", newTs.Height())
 		// NOTES: this will only work in delegated consensus
 		// Wait for more tipset to valid the height and be sure it is valid
-		if newTs.Height()%10 == 0 && (c.config != nil || c.newconfig != nil) {
+		if newTs.Height()%25 == 0 && (c.config != nil || c.newconfig != nil) {
 			fmt.Println("Check point time")
-			fmt.Println(c.init)
 
 			// Initiation and config should be happening at start
 			if c.init {
-
-				fmt.Println("Go go go!")
 				cp := oldTs.Key().Bytes()
 
 				// If we don't have a config we don't sign but update our config with key
@@ -377,7 +374,7 @@ func (c *CheckpointingSub) GenerateNewKeys(ctx context.Context) {
 
 	id := party.ID(c.host.ID().String())
 
-	threshold := 2
+	threshold := (len(idsStrings) / 2) + 1
 	n := NewNetwork(ids, c.sub, c.topic)
 	f := frost.KeygenTaproot(id, ids, threshold)
 
@@ -397,7 +394,10 @@ func (c *CheckpointingSub) GenerateNewKeys(ctx context.Context) {
 
 func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte) {
 
-	taprootAddress := PubkeyToTapprootAddress(c.pubkey)
+	taprootAddress, err := PubkeyToTapprootAddress(c.pubkey)
+	if err != nil {
+		panic(err)
+	}
 
 	pubkey := c.config.PublicKey
 	if c.newconfig != nil {
@@ -405,7 +405,10 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 	}
 
 	pubkeyShort := GenCheckpointPublicKeyTaproot(pubkey, cp)
-	newTaprootAddress := PubkeyToTapprootAddress(pubkeyShort)
+	newTaprootAddress, err := PubkeyToTapprootAddress(pubkeyShort)
+	if err != nil {
+		panic(err)
+	}
 
 	idsStrings := c.orderParticipantsList()
 	fmt.Println("Participants list :", idsStrings)
@@ -421,7 +424,6 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 		}
 
 		ptxid, err := WalletGetTxidFromAddress(c.cpconfig.BitcoinHost, taprootAddress)
-		fmt.Println(taprootAddress)
 		if err != nil {
 			panic(err)
 		}
@@ -441,7 +443,6 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 
 	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"createrawtransaction\", \"params\": [[{\"txid\":\"" + c.ptxid + "\",\"vout\": " + strconv.Itoa(index) + ", \"sequence\": 4294967295}], [{\"" + newTaprootAddress + "\": \"" + fmt.Sprintf("%.2f", newValue) + "\"}, {\"data\": \"" + hex.EncodeToString(data) + "\"}]]}"
 	result := jsonRPC(c.cpconfig.BitcoinHost, payload)
-	fmt.Println(result)
 	if result == nil {
 		panic("cant create new transaction")
 	}
@@ -506,8 +507,6 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 			panic("failed to broadcast transaction")
 		}
 
-		fmt.Println(result)
-
 		/* Need to keep this to build next one */
 		newtxid := result["result"].(string)
 		fmt.Println("New Txid:", newtxid)
@@ -531,11 +530,6 @@ func (c *CheckpointingSub) newOrderParticipantsList() []string {
 }
 
 func (c *CheckpointingSub) orderParticipantsList() []string {
-	/*id := c.host.ID().String()
-	var ids []string
-
-	ids = append(ids, id)
-	*/
 	var ids []string
 	for id := range c.config.VerificationShares {
 		ids = append(ids, string(id))
@@ -557,12 +551,15 @@ func (c *CheckpointingSub) formIDSlice(ids []string) party.IDSlice {
 	return idsSlice
 }
 
+// Temporary
 func (c *CheckpointingSub) prefundTaproot() error {
-	taprootAddress := PubkeyToTapprootAddress(c.pubkey)
+	taprootAddress, err := PubkeyToTapprootAddress(c.pubkey)
+	if err != nil {
+		return err
+	}
 
 	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"sendtoaddress\", \"params\": [\"" + taprootAddress + "\", 50]}"
 	result := jsonRPC(c.cpconfig.BitcoinHost, payload)
-	fmt.Println(result)
 	if result == nil {
 		// Should probably not panic here
 		return errors.New("couldn't create first transaction")
@@ -619,9 +616,10 @@ func BuildCheckpointingSub(mctx helpers.MetricsCtx, lc fx.Lifecycle, c *Checkpoi
 		panic(err)
 	}
 
-	btccp := GetLatestCheckpoint(c.cpconfig.BitcoinHost, publickey, cidBytes)
-
-	fmt.Println(btccp)
+	btccp, err := GetLatestCheckpoint(c.cpconfig.BitcoinHost, publickey, cidBytes)
+	if err != nil {
+		panic(err)
+	}
 
 	cp, err := GetConfig(ctx, c.minioClient, c.cpconfig.MinioBucketName, btccp.cid)
 

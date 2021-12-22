@@ -28,7 +28,6 @@ func (n *Network) Next(ctx context.Context) *protocol.Message {
 	msg, err := n.sub.Next(ctx)
 	if err == context.Canceled {
 		// We are actually done and don't want to wait for messages anymore
-		fmt.Println("We called canceled")
 		return nil
 	}
 
@@ -80,7 +79,6 @@ func broadcastingMessage(ctx context.Context, h protocol.Handler, network *Netwo
 		if !ok {
 			network.Done()
 			// the channel was closed, indicating that the protocol is done executing.
-			fmt.Println("Should be good")
 			close(over)
 			return
 		}
@@ -115,5 +113,4 @@ func LoopHandler(ctx context.Context, h protocol.Handler, network *Network) {
 	go waitingMessages(ctx, h, network, over)
 
 	<-over
-	fmt.Println("We are over")
 }
