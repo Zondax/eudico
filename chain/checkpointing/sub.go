@@ -273,8 +273,8 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 			if err != nil {
 				panic(err)
 			}
-			data := ts.Cids()[0]
-			err = c.initiate(data.Bytes())
+			cp := ts.Key().Bytes()
+			err = c.initiate(cp)
 			if err != nil {
 				panic(err)
 			}
