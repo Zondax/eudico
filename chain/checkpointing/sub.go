@@ -60,8 +60,6 @@ type CheckpointingSub struct {
 	minerSigners []peer.ID
 	// new config generated
 	newconfig *keygen.TaprootConfig
-	// Initiated
-	init bool
 	// Previous tx
 	ptxid string
 	// Tweaked value
@@ -188,7 +186,6 @@ func NewCheckpointSub(
 		host:         host,
 		api:          &api,
 		events:       e,
-		init:         false,
 		ptxid:        "",
 		config:       config,
 		minerSigners: minerSigners,
@@ -266,21 +263,6 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 			return false, nil, err
 		}
 
-		// Init with the first checkpoint for the demo
-		// Should be done outside of it ?
-		if !c.init && c.config != nil {
-			ts, err := c.api.ChainGetTipSetByHeight(ctx, 0, oldTs.Key())
-			if err != nil {
-				panic(err)
-			}
-			cp := ts.Key().Bytes()
-			err = c.initiate(cp)
-			if err != nil {
-				panic(err)
-			}
-			return false, nil, nil
-		}
-
 		// Activate checkpointing every 30 blocks
 		fmt.Println("Height:", newTs.Height())
 		// NOTES: this will only work in delegated consensus
@@ -289,42 +271,39 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 			fmt.Println("Check point time")
 
 			// Initiation and config should be happening at start
-			if c.init {
-				cp := oldTs.Key().Bytes()
+			cp := oldTs.Key().Bytes()
 
-				// If we don't have a config we don't sign but update our config with key
-				if c.config == nil {
-					fmt.Println("We dont have a config")
-					pubkey := c.newconfig.PublicKey
+			// If we don't have a config we don't sign but update our config with key
+			if c.config == nil {
+				fmt.Println("We dont have a config")
+				pubkey := c.newconfig.PublicKey
 
-					pubkeyShort := GenCheckpointPublicKeyTaproot(pubkey, cp)
+				pubkeyShort := GenCheckpointPublicKeyTaproot(pubkey, cp)
 
-					c.config = c.newconfig
-					merkleRoot := HashMerkleRoot(pubkey, cp)
-					c.tweakedValue = HashTweakedValue(pubkey, merkleRoot)
-					c.pubkey = pubkeyShort
-					c.newconfig = nil
+				c.config = c.newconfig
+				merkleRoot := HashMerkleRoot(pubkey, cp)
+				c.tweakedValue = HashTweakedValue(pubkey, merkleRoot)
+				c.pubkey = pubkeyShort
+				c.newconfig = nil
 
-				} else {
-					var config string = hex.EncodeToString(cp) + "\n"
-					for _, partyId := range c.orderParticipantsList() {
-						config += partyId + "\n"
-					}
-
-					hash, err := CreateConfig([]byte(config))
-					if err != nil {
-						panic(err)
-					}
-
-					// Push config to S3
-					err = StoreConfig(ctx, c.minioClient, c.cpconfig.MinioBucketName, hex.EncodeToString(hash))
-					if err != nil {
-						panic(err)
-					}
-
-					c.CreateCheckpoint(ctx, cp, hash)
+			} else {
+				var config string = hex.EncodeToString(cp) + "\n"
+				for _, partyId := range c.orderParticipantsList() {
+					config += partyId + "\n"
 				}
 
+				hash, err := CreateConfig([]byte(config))
+				if err != nil {
+					panic(err)
+				}
+
+				// Push config to S3
+				err = StoreConfig(ctx, c.minioClient, c.cpconfig.MinioBucketName, hex.EncodeToString(hash))
+				if err != nil {
+					panic(err)
+				}
+
+				c.CreateCheckpoint(ctx, cp, hash)
 			}
 		}
 
@@ -549,46 +528,6 @@ func (c *CheckpointingSub) formIDSlice(ids []string) party.IDSlice {
 	idsSlice := party.NewIDSlice(_ids)
 
 	return idsSlice
-}
-
-// Temporary
-func (c *CheckpointingSub) prefundTaproot() error {
-	taprootAddress, err := PubkeyToTapprootAddress(c.pubkey)
-	if err != nil {
-		return err
-	}
-
-	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"sendtoaddress\", \"params\": [\"" + taprootAddress + "\", 50]}"
-	result := jsonRPC(c.cpconfig.BitcoinHost, payload)
-	if result == nil {
-		// Should probably not panic here
-		return errors.New("couldn't create first transaction")
-	}
-	c.ptxid = result["result"].(string)
-
-	return nil
-}
-
-func (c *CheckpointingSub) initiate(cp []byte) error {
-	pubkeyShort := GenCheckpointPublicKeyTaproot(c.config.PublicKey, cp)
-	c.pubkey = pubkeyShort
-
-	idsStrings := c.orderParticipantsList()
-
-	if idsStrings[0] == c.host.ID().String() {
-		err := c.prefundTaproot()
-		if err != nil {
-			return err
-		}
-	}
-
-	// Save tweaked value
-	merkleRoot := HashMerkleRoot(c.config.PublicKey, cp)
-	c.tweakedValue = HashTweakedValue(c.config.PublicKey, merkleRoot)
-
-	c.init = true
-
-	return nil
 }
 
 func BuildCheckpointingSub(mctx helpers.MetricsCtx, lc fx.Lifecycle, c *CheckpointingSub) {
