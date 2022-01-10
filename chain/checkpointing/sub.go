@@ -165,8 +165,6 @@ func NewCheckpointSub(
 		for id := range config.VerificationShares {
 			minerSigners = append(minerSigners, peer.ID(id))
 		}
-
-		fmt.Println(minerSigners)
 	}
 
 	// Initialize minio client object.
@@ -218,7 +216,8 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 		// verify we are synced
 		st, err := c.api.SyncState(ctx)
 		if err != nil {
-			panic(err)
+			log.Errorf("unable to sync: %v", err)
+			return false, nil, err
 		}
 
 		if !c.synced {
@@ -230,7 +229,9 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 				// Yes then verify our checkpoint
 				ts, err := c.api.ChainGetTipSet(ctx, c.latestConfigCheckpoint)
 				if err != nil {
-					panic(err)
+					log.Errorf("couldnt get tipset: %v", err)
+					return false, nil, err
+
 				}
 				fmt.Println("We have a checkpoint up to height : ", ts.Height())
 				c.synced = true
@@ -292,16 +293,22 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 
 				hash, err := CreateConfig([]byte(config))
 				if err != nil {
-					panic(err)
+					log.Errorf("couldnt create config: %v", err)
+					return false, nil, err
 				}
 
 				// Push config to S3
 				err = StoreConfig(ctx, c.minioClient, c.cpconfig.MinioBucketName, hex.EncodeToString(hash))
 				if err != nil {
-					panic(err)
+					log.Errorf("couldnt push config: %v", err)
+					return false, nil, err
 				}
 
-				c.CreateCheckpoint(ctx, cp, hash)
+				err = c.CreateCheckpoint(ctx, cp, hash)
+				if err != nil {
+					log.Errorf("couldnt create checkpoint: %v", err)
+					return false, nil, err
+				}
 			}
 		}
 
@@ -328,21 +335,23 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 	}
 }
 
-func (c *CheckpointingSub) Start(ctx context.Context) {
+func (c *CheckpointingSub) Start(ctx context.Context) error {
 	topic, err := c.pubsub.Join("keygen")
 	if err != nil {
-		panic(err)
+		return err
 	}
 	c.topic = topic
 
 	// and subscribe to it
 	sub, err := topic.Subscribe()
 	if err != nil {
-		panic(err)
+		return err
 	}
 	c.sub = sub
 
 	c.listenCheckpointEvents(ctx)
+
+	return nil
 }
 
 func (c *CheckpointingSub) GenerateNewKeys(ctx context.Context) error {
@@ -379,10 +388,10 @@ func (c *CheckpointingSub) GenerateNewKeys(ctx context.Context) error {
 	return nil
 }
 
-func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte) {
+func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte) error {
 	taprootAddress, err := pubkeyToTapprootAddress(c.pubkey)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	pubkey := c.config.PublicKey
@@ -393,7 +402,7 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 	pubkeyShort := genCheckpointPublicKeyTaproot(pubkey, cp)
 	newTaprootAddress, err := pubkeyToTapprootAddress(pubkeyShort)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	idsStrings := c.orderParticipantsList()
@@ -407,12 +416,12 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 		fmt.Println(hex.EncodeToString(c.pubkey))
 		success := addTaprootToWallet(c.cpconfig.BitcoinHost, taprootScript)
 		if !success {
-			panic("failed to add taproot address to wallet")
+			return xerrors.Errorf("failed to add taproot address to wallet")
 		}
 
 		ptxid, err := walletGetTxidFromAddress(c.cpconfig.BitcoinHost, taprootAddress)
 		if err != nil {
-			panic(err)
+			return err
 		}
 		c.ptxid = ptxid
 		fmt.Println("Found precedent txid:", c.ptxid)
@@ -431,14 +440,14 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"createrawtransaction\", \"params\": [[{\"txid\":\"" + c.ptxid + "\",\"vout\": " + strconv.Itoa(index) + ", \"sequence\": 4294967295}], [{\"" + newTaprootAddress + "\": \"" + fmt.Sprintf("%.2f", newValue) + "\"}, {\"data\": \"" + hex.EncodeToString(data) + "\"}]]}"
 	result := jsonRPC(c.cpconfig.BitcoinHost, payload)
 	if result == nil {
-		panic("cant create new transaction")
+		return xerrors.Errorf("cant create new transaction")
 	}
 
 	rawTransaction := result["result"].(string)
 
 	tx, err := hex.DecodeString(rawTransaction)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	var buf [8]byte
@@ -448,7 +457,7 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 
 	hashedTx, err := TaprootSignatureHash(tx, utxo, 0x00)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	/*
@@ -460,13 +469,12 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 	n := NewNetwork(c.sub, c.topic)
 	handler, err := protocol.NewMultiHandler(f, hashedTx[:])
 	if err != nil {
-		panic(err)
+		return err
 	}
 	LoopHandler(ctx, handler, n)
 	r, err := handler.Result()
 	if err != nil {
-		fmt.Println(err)
-		panic(err)
+		return err
 	}
 	fmt.Println("Result :", r)
 
@@ -482,23 +490,22 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 
 	c.ptxid = ""
 
-	if idsStrings[0] == c.host.ID().String() {
-		// Only first one broadcast the transaction ?
-		// Actually all participants can broadcast the transcation. It will be the same everywhere.
-		rawtx := prepareWitnessRawTransaction(rawTransaction, r.(taproot.Signature))
+	// Only first one broadcast the transaction ?
+	// Actually all participants can broadcast the transcation. It will be the same everywhere.
+	rawtx := prepareWitnessRawTransaction(rawTransaction, r.(taproot.Signature))
 
-		payload = "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"sendrawtransaction\", \"params\": [\"" + rawtx + "\"]}"
-		result = jsonRPC(c.cpconfig.BitcoinHost, payload)
-		if result["error"] != nil {
-			fmt.Println(result)
-			panic("failed to broadcast transaction")
-		}
-
-		/* Need to keep this to build next one */
-		newtxid := result["result"].(string)
-		fmt.Println("New Txid:", newtxid)
-		c.ptxid = newtxid
+	payload = "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"sendrawtransaction\", \"params\": [\"" + rawtx + "\"]}"
+	result = jsonRPC(c.cpconfig.BitcoinHost, payload)
+	if result["error"] != nil {
+		return xerrors.Errorf("failed to broadcast transaction")
 	}
+
+	/* Need to keep this to build next one */
+	newtxid := result["result"].(string)
+	fmt.Println("New Txid:", newtxid)
+	c.ptxid = newtxid
+
+	return nil
 }
 
 func (c *CheckpointingSub) newOrderParticipantsList() []string {
@@ -545,7 +552,8 @@ func BuildCheckpointingSub(mctx helpers.MetricsCtx, lc fx.Lifecycle, c *Checkpoi
 	success := bitcoindPing(c.cpconfig.BitcoinHost)
 	if !success {
 		// Should probably not panic here
-		panic("Bitcoin node not available")
+		log.Errorf("bitcoin node not available")
+		return
 	}
 
 	fmt.Println("Successfully pinged bitcoind")
@@ -553,30 +561,34 @@ func BuildCheckpointingSub(mctx helpers.MetricsCtx, lc fx.Lifecycle, c *Checkpoi
 	// Get first checkpoint from block 0
 	ts, err := c.api.ChainGetGenesis(ctx)
 	if err != nil {
-		panic(err)
+		log.Errorf("couldnt get genesis tipset: %v", err)
+		return
 	}
 	cidBytes := ts.Key().Bytes()
 	publickey, err := hex.DecodeString(c.cpconfig.PublicKey)
 	if err != nil {
-		panic(err)
+		log.Errorf("couldnt decode public key: %v", err)
+		return
 	}
 
 	btccp, err := GetLatestCheckpoint(c.cpconfig.BitcoinHost, publickey, cidBytes)
 	if err != nil {
-		panic(err)
+		log.Errorf("couldnt decode public key: %v", err)
+		return
 	}
 
 	cp, err := GetConfig(ctx, c.minioClient, c.cpconfig.MinioBucketName, btccp.cid)
 
-	fmt.Println(cp)
 	if cp != "" {
 		cpBytes, err := hex.DecodeString(cp)
 		if err != nil {
-			panic(err)
+			log.Errorf("couldnt decode checkpoint: %v", err)
+			return
 		}
 		c.latestConfigCheckpoint, err = types.TipSetKeyFromBytes(cpBytes)
 		if err != nil {
-			panic(err)
+			log.Errorf("couldnt get tipset key from checkpoint: %v", err)
+			return
 		}
 	}
 
@@ -587,7 +599,10 @@ func BuildCheckpointingSub(mctx helpers.MetricsCtx, lc fx.Lifecycle, c *Checkpoi
 	merkleRoot := hashMerkleRoot(c.config.PublicKey, cidBytes)
 	c.tweakedValue = hashTweakedValue(c.config.PublicKey, merkleRoot)
 
-	c.Start(ctx)
+	err = c.Start(ctx)
+	if err != nil {
+		log.Errorf("couldn't start checkpointing module: %v", err)
+	}
 
 	lc.Append(fx.Hook{
 		OnStop: func(ctx context.Context) error {
