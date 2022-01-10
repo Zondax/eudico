@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -34,6 +33,7 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"go.uber.org/fx"
+	"golang.org/x/xerrors"
 )
 
 var log = logging.Logger("checkpointing")
@@ -85,7 +85,7 @@ func NewCheckpointSub(
 ) (*CheckpointingSub, error) {
 
 	ctx := helpers.LifecycleCtx(mctx, lc)
-	// Starting shardSub to listen to events in the root chain.
+	// Starting checkpoint listener
 	e, err := events.NewEvents(ctx, &api)
 	if err != nil {
 		return nil, err
@@ -107,10 +107,9 @@ func NewCheckpointSub(
 	synced := false
 	var config *keygen.TaprootConfig
 	// Load configTaproot
-	if _, err := os.Stat(os.Getenv("EUDICO_PATH") + "/share.toml"); errors.Is(err, os.ErrNotExist) {
-		// path/to/whatever does not exist
-		fmt.Println("No share file saved")
-	} else {
+	_, err = os.Stat(os.Getenv("EUDICO_PATH") + "/share.toml")
+	if err == nil {
+		// If we have a share.toml containing the distributed key we load them
 		synced = true
 		content, err := os.ReadFile(os.Getenv("EUDICO_PATH") + "/share.toml")
 		if err != nil {
@@ -221,7 +220,6 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 		if err != nil {
 			panic(err)
 		}
-		//fmt.Println(st.ActiveSyncs)
 
 		if !c.synced {
 			// Are we synced ?
@@ -278,11 +276,11 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 				fmt.Println("We dont have a config")
 				pubkey := c.newconfig.PublicKey
 
-				pubkeyShort := GenCheckpointPublicKeyTaproot(pubkey, cp)
+				pubkeyShort := genCheckpointPublicKeyTaproot(pubkey, cp)
 
 				c.config = c.newconfig
-				merkleRoot := HashMerkleRoot(pubkey, cp)
-				c.tweakedValue = HashTweakedValue(pubkey, merkleRoot)
+				merkleRoot := hashMerkleRoot(pubkey, cp)
+				c.tweakedValue = hashTweakedValue(pubkey, merkleRoot)
 				c.pubkey = pubkeyShort
 				c.newconfig = nil
 
@@ -312,7 +310,11 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 		if oldSt.MinerCount != newSt.MinerCount {
 			fmt.Println("Generate new config")
 
-			c.GenerateNewKeys(ctx)
+			err := c.GenerateNewKeys(ctx)
+			if err != nil {
+				log.Errorf("error while generating new key: %v", err)
+				// If generating new key failed, checkpointing should not be possible
+			}
 
 			return true, nil, nil
 		}
@@ -343,7 +345,7 @@ func (c *CheckpointingSub) Start(ctx context.Context) {
 	c.listenCheckpointEvents(ctx)
 }
 
-func (c *CheckpointingSub) GenerateNewKeys(ctx context.Context) {
+func (c *CheckpointingSub) GenerateNewKeys(ctx context.Context) error {
 
 	idsStrings := c.newOrderParticipantsList()
 
@@ -354,26 +356,31 @@ func (c *CheckpointingSub) GenerateNewKeys(ctx context.Context) {
 	id := party.ID(c.host.ID().String())
 
 	threshold := (len(idsStrings) / 2) + 1
-	n := NewNetwork(ids, c.sub, c.topic)
+	n := NewNetwork(c.sub, c.topic)
 	f := frost.KeygenTaproot(id, ids, threshold)
 
 	handler, err := protocol.NewMultiHandler(f, []byte{1, 2, 3})
 	if err != nil {
-		panic(err)
+		return err
 	}
 	LoopHandler(ctx, handler, n)
 	r, err := handler.Result()
 	if err != nil {
-		panic(err)
+		return err
 	}
 	fmt.Println("Result :", r)
 
-	c.newconfig = r.(*keygen.TaprootConfig)
+	var ok bool
+	c.newconfig, ok = r.(*keygen.TaprootConfig)
+	if !ok {
+		return xerrors.Errorf("state change propagated is the wrong type")
+	}
+
+	return nil
 }
 
 func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte) {
-
-	taprootAddress, err := PubkeyToTapprootAddress(c.pubkey)
+	taprootAddress, err := pubkeyToTapprootAddress(c.pubkey)
 	if err != nil {
 		panic(err)
 	}
@@ -383,8 +390,8 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 		pubkey = c.newconfig.PublicKey
 	}
 
-	pubkeyShort := GenCheckpointPublicKeyTaproot(pubkey, cp)
-	newTaprootAddress, err := PubkeyToTapprootAddress(pubkeyShort)
+	pubkeyShort := genCheckpointPublicKeyTaproot(pubkey, cp)
+	newTaprootAddress, err := pubkeyToTapprootAddress(pubkeyShort)
 	if err != nil {
 		panic(err)
 	}
@@ -396,13 +403,14 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 
 	if c.ptxid == "" {
 		fmt.Println("Missing precedent txid")
-		taprootScript := GetTaprootScript(c.pubkey)
-		success := AddTaprootToWallet(c.cpconfig.BitcoinHost, taprootScript)
+		taprootScript := getTaprootScript(c.pubkey)
+		fmt.Println(hex.EncodeToString(c.pubkey))
+		success := addTaprootToWallet(c.cpconfig.BitcoinHost, taprootScript)
 		if !success {
 			panic("failed to add taproot address to wallet")
 		}
 
-		ptxid, err := WalletGetTxidFromAddress(c.cpconfig.BitcoinHost, taprootAddress)
+		ptxid, err := walletGetTxidFromAddress(c.cpconfig.BitcoinHost, taprootAddress)
 		if err != nil {
 			panic(err)
 		}
@@ -411,12 +419,12 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 	}
 
 	index := 0
-	value, scriptPubkeyBytes := GetTxOut(c.cpconfig.BitcoinHost, c.ptxid, index)
+	value, scriptPubkeyBytes := getTxOut(c.cpconfig.BitcoinHost, c.ptxid, index)
 
 	if scriptPubkeyBytes[0] != 0x51 {
 		fmt.Println("Wrong txout")
 		index = 1
-		value, scriptPubkeyBytes = GetTxOut(c.cpconfig.BitcoinHost, c.ptxid, index)
+		value, scriptPubkeyBytes = getTxOut(c.cpconfig.BitcoinHost, c.ptxid, index)
 	}
 	newValue := value - c.cpconfig.Fee
 
@@ -449,7 +457,7 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 
 	fmt.Println("Starting signing")
 	f := frost.SignTaprootWithTweak(c.config, ids, hashedTx[:], c.tweakedValue[:])
-	n := NewNetwork(ids, c.sub, c.topic)
+	n := NewNetwork(c.sub, c.topic)
 	handler, err := protocol.NewMultiHandler(f, hashedTx[:])
 	if err != nil {
 		panic(err)
@@ -463,8 +471,8 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 	fmt.Println("Result :", r)
 
 	// if signing is a success we register the new value
-	merkleRoot := HashMerkleRoot(pubkey, cp)
-	c.tweakedValue = HashTweakedValue(pubkey, merkleRoot)
+	merkleRoot := hashMerkleRoot(pubkey, cp)
+	c.tweakedValue = hashTweakedValue(pubkey, merkleRoot)
 	c.pubkey = pubkeyShort
 	// If new config used
 	if c.newconfig != nil {
@@ -477,7 +485,7 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 	if idsStrings[0] == c.host.ID().String() {
 		// Only first one broadcast the transaction ?
 		// Actually all participants can broadcast the transcation. It will be the same everywhere.
-		rawtx := PrepareWitnessRawTransaction(rawTransaction, r.(taproot.Signature))
+		rawtx := prepareWitnessRawTransaction(rawTransaction, r.(taproot.Signature))
 
 		payload = "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"sendrawtransaction\", \"params\": [\"" + rawtx + "\"]}"
 		result = jsonRPC(c.cpconfig.BitcoinHost, payload)
@@ -534,15 +542,13 @@ func BuildCheckpointingSub(mctx helpers.MetricsCtx, lc fx.Lifecycle, c *Checkpoi
 	ctx := helpers.LifecycleCtx(mctx, lc)
 
 	// Ping to see if bitcoind is available
-	success := BitcoindPing(c.cpconfig.BitcoinHost)
+	success := bitcoindPing(c.cpconfig.BitcoinHost)
 	if !success {
 		// Should probably not panic here
 		panic("Bitcoin node not available")
 	}
 
 	fmt.Println("Successfully pinged bitcoind")
-
-	LoadWallet(c.cpconfig.BitcoinHost)
 
 	// Get first checkpoint from block 0
 	ts, err := c.api.ChainGetGenesis(ctx)
@@ -572,10 +578,14 @@ func BuildCheckpointingSub(mctx helpers.MetricsCtx, lc fx.Lifecycle, c *Checkpoi
 		if err != nil {
 			panic(err)
 		}
-
-		// The first tx is in Bitcoin
-		c.init = true
 	}
+
+	// save public key
+	c.pubkey = genCheckpointPublicKeyTaproot(c.config.PublicKey, cidBytes)
+
+	// Save tweaked value
+	merkleRoot := hashMerkleRoot(c.config.PublicKey, cidBytes)
+	c.tweakedValue = hashTweakedValue(c.config.PublicKey, merkleRoot)
 
 	c.Start(ctx)
 

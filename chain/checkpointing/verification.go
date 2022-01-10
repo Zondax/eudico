@@ -67,22 +67,22 @@ func GetNextCheckpointFixed(url, txid string) (Checkpoint, error) {
 }
 
 func GetLatestCheckpoint(url string, first_pk []byte, first_cp []byte) (*Checkpoint, error) {
-	first_pubkeyTaproot := GenCheckpointPublicKeyTaproot(first_pk, first_cp)
-	firstscript := GetTaprootScript(first_pubkeyTaproot)
-	taprootAddress, err := PubkeyToTapprootAddress(first_pubkeyTaproot)
+	first_pubkeyTaproot := genCheckpointPublicKeyTaproot(first_pk, first_cp)
+	firstscript := getTaprootScript(first_pubkeyTaproot)
+	taprootAddress, err := pubkeyToTapprootAddress(first_pubkeyTaproot)
 	if err != nil {
 		return nil, err
 	}
 
-	AddTaprootToWallet(url, firstscript)
+	addTaprootToWallet(url, firstscript)
 	checkpoint, done := GetFirstCheckpointAddress(url, taprootAddress)
-	AddTaprootToWallet(url, checkpoint.address)
+	addTaprootToWallet(url, checkpoint.address)
 	var new_checkpoint Checkpoint
 	for {
 		new_checkpoint, done = GetNextCheckpointFixed(url, checkpoint.txid)
 		if done == nil {
 			checkpoint = new_checkpoint
-			AddTaprootToWallet(url, checkpoint.address)
+			addTaprootToWallet(url, checkpoint.address)
 		} else {
 			return &checkpoint, nil
 		}
