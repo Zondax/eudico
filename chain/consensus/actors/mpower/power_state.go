@@ -8,10 +8,12 @@ import (
 // in delegated mode (easier for development)
 type State struct {
 	MinerCount int64
+	Miners     []string
 }
 
 func ConstructState(store adt.Store) (*State, error) {
 	return &State{
 		MinerCount: 0,
+		Miners:     make([]string, 0),
 	}, nil
 }

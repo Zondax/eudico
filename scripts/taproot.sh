@@ -19,7 +19,7 @@ curl -u satoshi:amiens -X POST \
 
 curl -u satoshi:amiens -X POST \
     127.0.0.1:18443 \
-    -d "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"sendtoaddress\", \"params\": [\"bcrt1p4mfqrdzkkuxm99gh89gpp2ckp6zmjjgt63u8rmkg8pqnczr3y30syypu8g\", 50]}" \
+    -d "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"sendtoaddress\", \"params\": [\"bcrt1p4ffl08gtqmc00j3cdc8x9tnqy8u4c0lr8vryny8um605qd78w7vs90n7mx\", 50]}" \
     -H 'Content-Type:application/json'
 
 

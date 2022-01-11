@@ -60,13 +60,18 @@ func (a Actor) Constructor(rt Runtime, _ *abi.EmptyValue) *abi.EmptyValue {
 	return nil
 }
 
+type AddMinerParams struct {
+	Miners []string
+}
+
 // Adds or removes claimed power for the calling actor.
 // May only be invoked by a miner actor.
-func (a Actor) AddMiner(rt Runtime, _ *abi.EmptyValue) *abi.EmptyValue {
+func (a Actor) AddMiner(rt Runtime, params *AddMinerParams) *abi.EmptyValue {
 	rt.ValidateImmediateCallerAcceptAny()
 	var st State
 	rt.StateTransaction(&st, func() {
 		st.MinerCount += 1
+		st.Miners = params.Miners
 	})
 	return nil
 }

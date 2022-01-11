@@ -316,8 +316,7 @@ func (c *CheckpointingSub) listenCheckpointEvents(ctx context.Context) {
 		// Changes detected so generate new key
 		if oldSt.MinerCount != newSt.MinerCount {
 			fmt.Println("Generate new config")
-
-			err := c.GenerateNewKeys(ctx)
+			err := c.GenerateNewKeys(ctx, newSt.Miners)
 			if err != nil {
 				log.Errorf("error while generating new key: %v", err)
 				// If generating new key failed, checkpointing should not be possible
@@ -354,9 +353,11 @@ func (c *CheckpointingSub) Start(ctx context.Context) error {
 	return nil
 }
 
-func (c *CheckpointingSub) GenerateNewKeys(ctx context.Context) error {
+func (c *CheckpointingSub) GenerateNewKeys(ctx context.Context, participants []string) error {
 
-	idsStrings := c.newOrderParticipantsList()
+	//idsStrings := c.newOrderParticipantsList()
+	idsStrings := participants
+	sort.Strings(idsStrings)
 
 	fmt.Println("Participants list :", idsStrings)
 
@@ -596,6 +597,9 @@ func BuildCheckpointingSub(mctx helpers.MetricsCtx, lc fx.Lifecycle, c *Checkpoi
 	if c.config != nil {
 		// save public key
 		c.pubkey = genCheckpointPublicKeyTaproot(c.config.PublicKey, cidBytes)
+
+		address, _ := pubkeyToTapprootAddress(c.pubkey)
+		fmt.Println(address)
 
 		// Save tweaked value
 		merkleRoot := hashMerkleRoot(c.config.PublicKey, cidBytes)

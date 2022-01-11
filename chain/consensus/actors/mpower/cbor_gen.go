@@ -10,7 +10,7 @@ import (
 
 var _ = xerrors.Errorf
 
-var lengthBufState = []byte{129}
+var lengthBufState = []byte{130}
 
 func (t *State) MarshalCBOR(w io.Writer) error {
 	if t == nil {
@@ -34,6 +34,32 @@ func (t *State) MarshalCBOR(w io.Writer) error {
 		}
 	}
 
+	// t.Miners ([]string) (slice)
+	if len(t.Miners) > cbg.MaxLength {
+		return xerrors.Errorf("Slice value in field t.Miners was too long")
+	}
+
+	if err := cbg.WriteMajorTypeHeaderBuf(scratch, w, cbg.MajArray, uint64(len(t.Miners))); err != nil {
+		return err
+	}
+	for _, v := range t.Miners {
+		if err := marshalCBORString(w, v); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func marshalCBORString(w io.Writer, s string) error {
+	if err := cbg.WriteMajorTypeHeader(w, cbg.MajTextString, uint64(len(s))); err != nil {
+		return err
+	}
+
+	if _, err := io.WriteString(w, s); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -51,7 +77,7 @@ func (t *State) UnmarshalCBOR(r io.Reader) error {
 		return fmt.Errorf("cbor input should be of type array")
 	}
 
-	if extra != 1 {
+	if extra != 2 {
 		return fmt.Errorf("cbor input had wrong number of fields")
 	}
 
@@ -79,6 +105,113 @@ func (t *State) UnmarshalCBOR(r io.Reader) error {
 		}
 
 		t.MinerCount = int64(extraI)
+	}
+
+	// t.Miners ([]string) (slice)
+	maj, extra, err = cbg.CborReadHeaderBuf(br, scratch)
+	if err != nil {
+		return err
+	}
+
+	if extra > cbg.MaxLength {
+		return fmt.Errorf("t.Miners: array too large (%d)", extra)
+	}
+
+	if maj != cbg.MajArray {
+		return fmt.Errorf("expected cbor array")
+	}
+
+	if extra > 0 {
+		t.Miners = make([]string, extra)
+	}
+
+	for i := 0; i < int(extra); i++ {
+
+		m, err := cbg.ReadString(br)
+		if err != nil {
+			return err
+		}
+
+		t.Miners[i] = m
+	}
+
+	return nil
+}
+
+var lengthBufAddMinerParams = []byte{129}
+
+func (t *AddMinerParams) MarshalCBOR(w io.Writer) error {
+	if t == nil {
+		_, err := w.Write(cbg.CborNull)
+		return err
+	}
+	if _, err := w.Write(lengthBufAddMinerParams); err != nil {
+		return err
+	}
+
+	scratch := make([]byte, 9)
+
+	// t.Miners ([]string) (slice)
+	if len(t.Miners) > cbg.MaxLength {
+		return xerrors.Errorf("Slice value in field t.Miners was too long")
+	}
+
+	if err := cbg.WriteMajorTypeHeaderBuf(scratch, w, cbg.MajArray, uint64(len(t.Miners))); err != nil {
+		return err
+	}
+	for _, v := range t.Miners {
+		if err := marshalCBORString(w, v); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (t *AddMinerParams) UnmarshalCBOR(r io.Reader) error {
+	*t = AddMinerParams{}
+
+	br := cbg.GetPeeker(r)
+	scratch := make([]byte, 8)
+
+	maj, extra, err := cbg.CborReadHeaderBuf(br, scratch)
+	if err != nil {
+		return err
+	}
+	if maj != cbg.MajArray {
+		return fmt.Errorf("cbor input should be of type array")
+	}
+
+	if extra != 1 {
+		return fmt.Errorf("cbor input had wrong number of fields")
+	}
+
+	// t.Miners ([]string) (slice)
+	maj, extra, err = cbg.CborReadHeaderBuf(br, scratch)
+	if err != nil {
+		return err
+	}
+
+	if extra > cbg.MaxLength {
+		return fmt.Errorf("t.Miners: array too large (%d)", extra)
+	}
+
+	if maj != cbg.MajArray {
+		return fmt.Errorf("expected cbor array")
+	}
+
+	if extra > 0 {
+		t.Miners = make([]string, extra)
+	}
+
+	for i := 0; i < int(extra); i++ {
+
+		m, err := cbg.ReadString(br)
+		if err != nil {
+			return err
+		}
+
+		t.Miners[i] = m
 	}
 
 	return nil
