@@ -365,6 +365,7 @@ func (c *CheckpointingSub) GenerateNewKeys(ctx context.Context) error {
 	id := party.ID(c.host.ID().String())
 
 	threshold := (len(idsStrings) / 2) + 1
+	fmt.Println(threshold)
 	n := NewNetwork(c.sub, c.topic)
 	f := frost.KeygenTaproot(id, ids, threshold)
 
