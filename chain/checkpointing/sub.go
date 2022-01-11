@@ -592,12 +592,14 @@ func BuildCheckpointingSub(mctx helpers.MetricsCtx, lc fx.Lifecycle, c *Checkpoi
 		}
 	}
 
-	// save public key
-	c.pubkey = genCheckpointPublicKeyTaproot(c.config.PublicKey, cidBytes)
+	if c.config != nil {
+		// save public key
+		c.pubkey = genCheckpointPublicKeyTaproot(c.config.PublicKey, cidBytes)
 
-	// Save tweaked value
-	merkleRoot := hashMerkleRoot(c.config.PublicKey, cidBytes)
-	c.tweakedValue = hashTweakedValue(c.config.PublicKey, merkleRoot)
+		// Save tweaked value
+		merkleRoot := hashMerkleRoot(c.config.PublicKey, cidBytes)
+		c.tweakedValue = hashTweakedValue(c.config.PublicKey, merkleRoot)
+	}
 
 	err = c.Start(ctx)
 	if err != nil {
