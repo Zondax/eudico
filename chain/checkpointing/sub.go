@@ -342,7 +342,9 @@ func (c *CheckpointingSub) Start(ctx context.Context) error {
 	c.topic = topic
 
 	// and subscribe to it
-	sub, err := topic.Subscribe()
+	// INCREASE THE BUFFER SIZE BECAUSE IT IS ONLY 32 !
+	// https://github.com/libp2p/go-libp2p-pubsub/blob/v0.5.4/pubsub.go#L1222
+	sub, err := topic.Subscribe(pubsub.WithBufferSize(1000))
 	if err != nil {
 		return err
 	}
