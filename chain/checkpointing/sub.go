@@ -28,7 +28,6 @@ import (
 	cbor "github.com/ipfs/go-ipld-cbor"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p-core/host"
-	"github.com/libp2p/go-libp2p-core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -54,10 +53,10 @@ type CheckpointingSub struct {
 
 	// Generated public key
 	pubkey []byte
+	// Participants list
+	participants []string
 	// taproot config
 	config *keygen.TaprootConfig
-	// miners
-	minerSigners []peer.ID
 	// new config generated
 	newconfig *keygen.TaprootConfig
 	// Previous tx
@@ -102,7 +101,7 @@ func NewCheckpointSub(
 	cpconfig := result.(*config.FullNode).Checkpoint
 
 	// initiate miners signers array
-	var minerSigners []peer.ID
+	var minerSigners []string
 
 	synced := false
 	var config *keygen.TaprootConfig
@@ -163,7 +162,7 @@ func NewCheckpointSub(
 		}
 
 		for id := range config.VerificationShares {
-			minerSigners = append(minerSigners, peer.ID(id))
+			minerSigners = append(minerSigners, string(id))
 		}
 	}
 
@@ -185,7 +184,7 @@ func NewCheckpointSub(
 		events:       e,
 		ptxid:        "",
 		config:       config,
-		minerSigners: minerSigners,
+		participants: minerSigners,
 		newconfig:    nil,
 		cpconfig:     &cpconfig,
 		minioClient:  minioClient,
@@ -342,7 +341,7 @@ func (c *CheckpointingSub) Start(ctx context.Context) error {
 	c.topic = topic
 
 	// and subscribe to it
-	// INCREASE THE BUFFER SIZE BECAUSE IT IS ONLY 32 !
+	// INCREASE THE BUFFER SIZE BECAUSE IT IS ONLY 32 ! AND IT IS DROPPING MESSAGES WHEN FULL
 	// https://github.com/libp2p/go-libp2p-pubsub/blob/v0.5.4/pubsub.go#L1222
 	sub, err := topic.Subscribe(pubsub.WithBufferSize(1000))
 	if err != nil {
@@ -389,6 +388,8 @@ func (c *CheckpointingSub) GenerateNewKeys(ctx context.Context, participants []s
 		return xerrors.Errorf("state change propagated is the wrong type")
 	}
 
+	c.participants = participants
+
 	return nil
 }
 
@@ -410,6 +411,8 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 	}
 
 	idsStrings := c.orderParticipantsList()
+	//idsStrings := c.participants
+	//sort.Strings(idsStrings)
 	fmt.Println("Participants list :", idsStrings)
 	fmt.Println("Precedent tx", c.ptxid)
 	ids := c.formIDSlice(idsStrings)
@@ -417,7 +420,6 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 	if c.ptxid == "" {
 		fmt.Println("Missing precedent txid")
 		taprootScript := getTaprootScript(c.pubkey)
-		fmt.Println(hex.EncodeToString(c.pubkey))
 		success := addTaprootToWallet(c.cpconfig.BitcoinHost, taprootScript)
 		if !success {
 			return xerrors.Errorf("failed to add taproot address to wallet")
@@ -600,8 +602,8 @@ func BuildCheckpointingSub(mctx helpers.MetricsCtx, lc fx.Lifecycle, c *Checkpoi
 		// save public key
 		c.pubkey = genCheckpointPublicKeyTaproot(c.config.PublicKey, cidBytes)
 
-		address, _ := pubkeyToTapprootAddress(c.pubkey)
-		fmt.Println(address)
+		//address, _ := pubkeyToTapprootAddress(c.pubkey)
+		//fmt.Println(address)
 
 		// Save tweaked value
 		merkleRoot := hashMerkleRoot(c.config.PublicKey, cidBytes)
