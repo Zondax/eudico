@@ -79,12 +79,11 @@ func waitingMessages(ctx context.Context, h protocol.Handler, network *Network, 
 			return
 		default:
 			msg := network.Next(ctx)
-			fmt.Println("Incoming message:", msg)
-
-			/*if h.CanAccept(msg) {
+			//fmt.Println("Incoming message:", msg)
+			if h.CanAccept(msg) {
 				// This message is ours
 				fmt.Println("Incoming message:", msg)
-			}*/
+			}
 			h.Accept(msg)
 		}
 
@@ -101,4 +100,6 @@ func LoopHandler(ctx context.Context, h protocol.Handler, network *Network) {
 	go waitingMessages(ctx, h, network, over)
 
 	<-over
+
+	fmt.Println("We are done")
 }
