@@ -514,6 +514,9 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 	return nil
 }
 
+/*
+	Deprecated
+	ListPeers doesn't return all the peers when more than 10 nodes!
 func (c *CheckpointingSub) newOrderParticipantsList() []string {
 	id := c.host.ID().String()
 	var ids []string
@@ -527,7 +530,7 @@ func (c *CheckpointingSub) newOrderParticipantsList() []string {
 	sort.Strings(ids)
 
 	return ids
-}
+}*/
 
 func (c *CheckpointingSub) orderParticipantsList() []string {
 	var ids []string

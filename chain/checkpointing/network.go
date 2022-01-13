@@ -79,7 +79,7 @@ func waitingMessages(ctx context.Context, h protocol.Handler, network *Network, 
 			return
 		default:
 			msg := network.Next(ctx)
-			fmt.Println("Incoming message:", msg)
+			fmt.Println("Incoming message: %v, %v", msg, h.CanAccept(msg))
 			/*if h.CanAccept(msg) {
 				// This message is ours
 				fmt.Println("Incoming message:", msg)
