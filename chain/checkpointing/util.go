@@ -148,7 +148,7 @@ func genCheckpointPublicKeyTaproot(internal_pubkey []byte, checkpoint []byte) []
 func addTaprootToWallet(url, taprootScript string) bool {
 	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"importaddress\", \"params\": [\"" + taprootScript + "\", \"\", true]}"
 	result := jsonRPC(url, payload)
-
+	fmt.Println(result)
 	if result["error"] == nil {
 		return true
 	}
@@ -171,6 +171,8 @@ func getTaprootScript(pubkey []byte) string {
 func walletGetTxidFromAddress(url, taprootAddress string) (string, error) {
 	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"listtransactions\", \"params\": [\"*\", 500000000, 0, true]}"
 	result := jsonRPC(url, payload)
+	fmt.Println(result)
+
 	list := result["result"].([]interface{})
 	for _, item := range list {
 		item_map := item.(map[string]interface{})
