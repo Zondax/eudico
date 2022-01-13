@@ -471,6 +471,7 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 	 */
 
 	fmt.Println("Starting signing")
+	fmt.Println(hex.EncodeToString(hashedTx[:]))
 	f := frost.SignTaprootWithTweak(c.config, ids, hashedTx[:], c.tweakedValue[:])
 	n := NewNetwork(c.sub, c.topic)
 	handler, err := protocol.NewMultiHandler(f, hashedTx[:])
