@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/Zondax/multi-party-sig/pkg/math/curve"
@@ -401,9 +402,11 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 
 	pubkey := c.config.PublicKey
 	if c.newconfig != nil {
+		fmt.Println("this is shouldnt be going into this")
 		pubkey = c.newconfig.PublicKey
 	}
 
+	fmt.Println("Checpoint! :", hex.EncodeToString(cp))
 	pubkeyShort := genCheckpointPublicKeyTaproot(pubkey, cp)
 	newTaprootAddress, err := pubkeyToTapprootAddress(pubkeyShort)
 	if err != nil {
@@ -424,6 +427,9 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 		if !success {
 			return xerrors.Errorf("failed to add taproot address to wallet")
 		}
+
+		// sleep an arbitrary long time to be sure it has been scanned
+		time.Sleep(6 * time.Second)
 
 		ptxid, err := walletGetTxidFromAddress(c.cpconfig.BitcoinHost, taprootAddress)
 		if err != nil {
@@ -493,6 +499,7 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 	c.pubkey = pubkeyShort
 	// If new config used
 	if c.newconfig != nil {
+		fmt.Println("Switching config")
 		c.config = c.newconfig
 		c.newconfig = nil
 	}
