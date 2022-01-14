@@ -402,11 +402,9 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 
 	pubkey := c.config.PublicKey
 	if c.newconfig != nil {
-		fmt.Println("this is shouldnt be going into this")
 		pubkey = c.newconfig.PublicKey
 	}
 
-	fmt.Println("Checpoint! :", hex.EncodeToString(cp))
 	pubkeyShort := genCheckpointPublicKeyTaproot(pubkey, cp)
 	newTaprootAddress, err := pubkeyToTapprootAddress(pubkeyShort)
 	if err != nil {
@@ -479,7 +477,6 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 	 */
 
 	fmt.Println("Starting signing")
-	fmt.Println(hex.EncodeToString(hashedTx[:]))
 	f := frost.SignTaprootWithTweak(c.config, ids, hashedTx[:], c.tweakedValue[:])
 	n := NewNetwork(c.sub, c.topic)
 	handler, err := protocol.NewMultiHandler(f, hashedTx[:])
@@ -499,7 +496,6 @@ func (c *CheckpointingSub) CreateCheckpoint(ctx context.Context, cp, data []byte
 	c.pubkey = pubkeyShort
 	// If new config used
 	if c.newconfig != nil {
-		fmt.Println("Switching config")
 		c.config = c.newconfig
 		c.newconfig = nil
 	}
