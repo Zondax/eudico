@@ -16,11 +16,15 @@ type Checkpoint struct {
 }
 
 func GetFirstCheckpointAddress(url, taprootAddress string) (Checkpoint, error) {
+	// List all the transactions and look for one that match the taproot address
 	payload := "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"listtransactions\", \"params\": [\"*\", 500000000, 0, true]}"
+	// url is the url of the bitcoin node with the RPC port
 	result := jsonRPC(url, payload)
 	list := result["result"].([]interface{})
 	for _, item := range list {
 		item_map := item.(map[string]interface{})
+
+		// Check if address match taproot adress given if yes return it
 		if item_map["address"] == taprootAddress {
 			tx_id := item_map["txid"].(string)
 			payload = "{\"jsonrpc\": \"1.0\", \"id\":\"wow\", \"method\": \"getrawtransaction\", \"params\": [\"" + tx_id + "\", true]}"
@@ -74,8 +78,14 @@ func GetLatestCheckpoint(url string, first_pk []byte, first_cp []byte) (*Checkpo
 		return nil, err
 	}
 
+	/*
+		Bitcoin node only allow to collect transaction from addresses that are registered in the wallet
+		In this step we import taproot script (and not the address) in the wallet node to then be able to ask
+		for transaction linked to it.
+	*/
 	addTaprootToWallet(url, firstscript)
 	checkpoint, done := GetFirstCheckpointAddress(url, taprootAddress)
+	// Aging we add taproot "address" (actually the script) to the wallet in the Bitcoin node
 	addTaprootToWallet(url, checkpoint.address)
 	var new_checkpoint Checkpoint
 	for {
@@ -84,6 +94,7 @@ func GetLatestCheckpoint(url string, first_pk []byte, first_cp []byte) (*Checkpo
 			checkpoint = new_checkpoint
 			addTaprootToWallet(url, checkpoint.address)
 		} else {
+			// Return once we have found the last one in bitcoin
 			return &checkpoint, nil
 		}
 	}

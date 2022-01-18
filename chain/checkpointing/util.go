@@ -20,6 +20,7 @@ type VerificationShare struct {
 	Share string
 }
 
+// Define what share.toml should look like
 type TaprootConfigTOML struct {
 	Thershold          int
 	PrivateShare       string
@@ -164,7 +165,7 @@ func addTaprootToWallet(url, taprootScript string) bool {
 }
 
 func getTaprootScript(pubkey []byte) string {
-	// 1 <20-size>  pukey
+	// 1 <20-size>  pubkey
 	return "5120" + hex.EncodeToString(pubkey)
 }
 
